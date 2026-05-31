@@ -11,23 +11,31 @@ TARGETS=(
   client-ui
 )
 
-declare -A TARGET_ALIASES=(
-  [server-controller]="sc"
-  [server-tag]="st"
-  [client-controller]="cc"
-  [client-tag]="ct"
-  [client-local-tag]="clt"
-  [client-ui]="ui"
-)
+alias_for_target() {
+  case "$1" in
+    server-controller) printf '%s' "sc" ;;
+    server-tag) printf '%s' "st" ;;
+    client-controller) printf '%s' "cc" ;;
+    client-tag) printf '%s' "ct" ;;
+    client-local-tag) printf '%s' "clt" ;;
+    client-ui) printf '%s' "ui" ;;
+    *) return 1 ;;
+  esac
+}
 
-declare -A ALIAS_TO_TARGET=(
-  [sc]="server-controller"
-  [st]="server-tag"
-  [cc]="client-controller"
-  [ct]="client-tag"
-  [clt]="client-local-tag"
-  [ui]="client-ui"
-)
+resolve_target() {
+  case "$1" in
+    server-controller|sc) printf '%s' "server-controller" ;;
+    server-tag|st) printf '%s' "server-tag" ;;
+    client-controller|cc) printf '%s' "client-controller" ;;
+    client-tag|ct) printf '%s' "client-tag" ;;
+    client-local-tag|clt) printf '%s' "client-local-tag" ;;
+    client-ui|ui) printf '%s' "client-ui" ;;
+    *) return 1 ;;
+  esac
+}
+
+COMPLETION_WORDS="server-controller server-tag client-controller client-tag client-local-tag client-ui sc st cc ct clt ui"
 
 trim() {
   local value="$1"
@@ -39,8 +47,8 @@ trim() {
 print_targets() {
   echo "Available targets:"
   for target in "${TARGETS[@]}"; do
-    local alias="${TARGET_ALIASES[$target]-}"
-    if [[ -n "$alias" ]]; then
+    local alias
+    if alias="$(alias_for_target "$target")"; then
       echo "  - $target ($alias)"
     else
       echo "  - $target"
@@ -50,9 +58,9 @@ print_targets() {
 
 usage() {
   cat <<'EOF'
-Usage: ./scaffold.sh <target> <Name>
-       ./scaffold.sh --install-completion   # enable TAB completion for targets
-       ./scaffold.sh                        # interactive mode (prompts)
+Usage: bash scaffold.sh <target> <Name>
+       bash scaffold.sh --install-completion   # enable TAB completion for targets
+       bash scaffold.sh                        # interactive mode (prompts)
 
 Targets:
   server-controller (sc)     Create src/server/modules/<Name>.luau
@@ -63,8 +71,8 @@ Targets:
   client-ui (ui)             Create src/client/ui/<Name>.luau
 
 Examples:
-  ./scaffold.sh server-controller FishingReplicationController
-  ./scaffold.sh client-ui InventoryUI
+  bash scaffold.sh server-controller FishingReplicationController
+  bash scaffold.sh client-ui InventoryUI
 EOF
 }
 
@@ -140,8 +148,8 @@ create_from_template() {
 
   echo "New file: ${relative_destination}:1"
 
-  if [[ -x "$SCRIPT_DIR/refresh-sourcemap.sh" ]]; then
-    if ! "$SCRIPT_DIR/refresh-sourcemap.sh" >/dev/null 2>&1; then
+  if [[ -f "$SCRIPT_DIR/refresh-sourcemap.sh" ]]; then
+    if ! bash "$SCRIPT_DIR/refresh-sourcemap.sh" >/dev/null 2>&1; then
       echo "Warning: refresh-sourcemap.sh failed." >&2
     fi
   fi
@@ -153,17 +161,10 @@ prompt_target() {
     local selected
     selected="$(trim "$selected_raw")"
 
-    if [[ -n "${ALIAS_TO_TARGET[$selected]-}" ]]; then
-      selected="${ALIAS_TO_TARGET[$selected]}"
+    if resolved="$(resolve_target "$selected" 2>/dev/null)"; then
+      printf '%s' "$resolved"
+      return 0
     fi
-
-    for target in "${TARGETS[@]}"; do
-      if [[ "$selected" == "$target" ]]; then
-        printf "%s" "$selected"
-
-        return 0
-      fi
-    done
 
     echo "Invalid target. Please choose one from the list:" >&2
     print_targets >&2
@@ -190,7 +191,7 @@ install_completion() {
     eval "
 		${fn}() {
 			local cur=\${COMP_WORDS[COMP_CWORD]}
-			COMPREPLY=(\$(compgen -W \"${TARGETS[*]} ${!ALIAS_TO_TARGET[*]}\" -- \"\$cur\"))
+			COMPREPLY=(\$(compgen -W \"${COMPLETION_WORDS}\" -- \"\$cur\"))
 		}
 		complete -F ${fn} scaffold.sh
 	"
@@ -222,8 +223,11 @@ main() {
   local target="$1"
   local name="$2"
 
-  if [[ -n "${ALIAS_TO_TARGET[$target]-}" ]]; then
-    target="${ALIAS_TO_TARGET[$target]}"
+  if resolved="$(resolve_target "$target" 2>/dev/null)"; then
+    target="$resolved"
+  else
+    fail "Unknown target: $target"
+    exit 1
   fi
 
   validate_name "$name" || exit 1

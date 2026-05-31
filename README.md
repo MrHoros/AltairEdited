@@ -33,10 +33,6 @@ Altair is a Roblox game project that follows a modular architecture with control
 2. Run the initialization script to install the tool manager and other required tools:
 
    ```bash
-   # On Windows
-   ./init.sh
-
-   # On macOS/Linux
    bash init.sh
    ```
 
@@ -50,19 +46,19 @@ Altair is a Roblox game project that follows a modular architecture with control
 1. **Update Dependencies**: After pulling changes, run the update script to ensure all dependencies are up to date:
 
    ```bash
-   ./update.sh
+   bash update.sh
    ```
 
 2. **Serve the Project**: To sync your code with Roblox Studio, run:
 
    ```bash
-   ./serve.sh
+   bash serve.sh
    ```
 
    If you have multiple project files, specify which one to serve:
 
    ```bash
-   ./serve.sh <project-name>
+   bash serve.sh <project-name>
    ```
 
 3. **Open in Roblox Studio**: With the Rojo server running, connect to it from Roblox Studio using the Rojo plugin.
@@ -78,10 +74,10 @@ Use the `scaffold.sh` script to quickly create new controllers, tags, or UI from
 
 ```bash
 # Interactive mode
-./scaffold.sh
+bash scaffold.sh
 
 # Direct command (with aliases)
-./scaffold.sh sc MyNewController
+bash scaffold.sh sc MyNewController
 ```
 
 Available targets: `server-controller (sc)`, `server-tag (st)`, `client-controller (cc)`, `client-tag (ct)`, `client-local-tag (clt)`, `client-ui (ui)`.
@@ -92,7 +88,7 @@ Available targets: `server-controller (sc)`, `server-tag (st)`, `client-controll
 bash refresh-sourcemap.sh
 ```
 
-- **Auto-refresh while you work (Windows)**:
+- **Auto-refresh while you work (Windows / macOS)**:
 
 ```bash
 bash watch-sourcemap.sh
@@ -175,7 +171,7 @@ Comprehensive development guidelines are available in the `.junie/guidelines.md`
 
 - **Important**: Do not run `selene .` as it is not supported in this project environment. Instead, analyze files individually: `selene path/to/file.luau`
 
-- Important: After creating any new file, run `./update.sh` before analyzing with `luau-lsp.exe` to ensure all dependencies and project structure are updated
+- Important: After creating any new file, run `bash update.sh` before analyzing with `luau-lsp.exe` to ensure all dependencies and project structure are updated
 - For functionality verification, use the existing type checking tools (`luau-lsp.exe` and `selene`)
 
 ## Dependencies
@@ -199,9 +195,9 @@ The project uses the following main dependencies:
 
 ### Common Issues
 
-1. **Rokit/Aftman not found**: Make sure to run `init.sh` and ensure that `~/.rokit/bin` (Rokit) or `~/.aftman/bin` (Aftman) is in your PATH
-2. **Wally packages not found**: Run `./update.sh` to install dependencies
-3. **Rojo connection issues**: Make sure the Rojo server is running (`./serve.sh`) and that you have the Rojo plugin installed in Roblox Studio
+1. **Rokit/Aftman not found**: Make sure to run `bash init.sh` and ensure that `~/.rokit/bin` (Rokit) or `~/.aftman/bin` (Aftman) is in your PATH
+2. **Wally packages not found**: Run `bash update.sh` to install dependencies
+3. **Rojo connection issues**: Make sure the Rojo server is running (`bash serve.sh`) and that you have the Rojo plugin installed in Roblox Studio
 
 ## License
 

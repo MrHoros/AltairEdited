@@ -66,8 +66,6 @@ done
 
 } > "$OUTPUT_FILE"
 
-chmod -f +x "$OUTPUT_FILE" >/dev/null 2>&1 || true
-
 if command -v StyLua >/dev/null 2>&1; then
   echo "Formatting $OUTPUT_FILE with StyLua..."
   StyLua "$OUTPUT_FILE" || true
