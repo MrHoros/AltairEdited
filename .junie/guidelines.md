@@ -23,12 +23,10 @@ Project guidelines take priority over any assistant modes or operational workflo
 2. Run the initialization script to install the tool manager and other required tools:
 
    ```bash
-   # On Windows
-   ./init.sh
-
-   # On macOS/Linux
    bash init.sh
    ```
+
+   Use `bash script.sh` for repo shell scripts. On macOS, `init.sh` adds `~/.rokit/bin` to `~/.zshrc` and `~/.zprofile`; on Linux and Git Bash it updates `~/.bashrc`.
 
    This script will:
 
@@ -80,19 +78,19 @@ The actual structure of the project is:
 1. **Update Dependencies**: After pulling changes, run the update script to ensure all dependencies are up to date:
 
    ```bash
-   ./update.sh
+   bash update.sh
    ```
 
 2. **Serve the Project**: To sync your code with `Roblox Studio`, run:
 
    ```bash
-   ./serve.sh
+   bash serve.sh
    ```
 
    If you have multiple project files, specify which one to serve:
 
    ```bash
-   ./serve.sh <project-name>
+   bash serve.sh <project-name>
    ```
 
 3. **Open in `Roblox Studio`**: With the `Rojo` server running, connect to it from `Roblox Studio` using the `Rojo` plugin.
@@ -284,7 +282,7 @@ local result: string? = isValid and computeResult() or nil
 - **Important**: When any new file has been created, the Rojo `sourcemap.json` must include it for correct editor IntelliSense and `luau-lsp` resolution.
   - Quick fix (refresh sourcemap only): `bash refresh-sourcemap.sh`
   - Full update (dependencies + sourcemap + generated types): `bash update.sh`
-  - Optional (Windows): keep sourcemap up to date automatically with `bash watch-sourcemap.sh`
+  - Optional (Windows / macOS): keep sourcemap up to date automatically with `bash watch-sourcemap.sh` (macOS requires `brew install fswatch`)
 - For functionality verification:
   1. Use the existing type checking tools (`luau-lsp.exe` and `selene`)
   2. Test functionality directly in `Roblox Studio` during development
@@ -306,7 +304,7 @@ local result: string? = isValid and computeResult() or nil
 - Dependencies are managed using `Wally` (defined in `wally.toml`)
 - To add a new dependency:
   1. Add it to `wally.toml`
-  2. Run `./update.sh` to install it
+  2. Run `bash update.sh` to install it
   3. The dependency will be available in the `Packages` directory
 
 ### State Management
@@ -335,6 +333,6 @@ local result: string? = isValid and computeResult() or nil
 
 ### Common Issues
 
-1. **`Rokit`/`Aftman` not found**: Make sure to run `init.sh` and ensure that `~/.rokit/bin` (Rokit) or `~/.aftman/bin` (Aftman) is in your PATH
-2. **`Wally` packages not found**: Run `./update.sh` to install dependencies
-3. **`Rojo` connection issues**: Make sure the `Rojo` server is running (`./serve.sh`) and that you have the `Rojo` plugin installed in `Roblox Studio`
+1. **`Rokit`/`Aftman` not found**: Make sure to run `bash init.sh` and ensure that `~/.rokit/bin` (Rokit) or `~/.aftman/bin` (Aftman) is in your PATH. On macOS with zsh, check `~/.zshrc` or `~/.zprofile`; open a new terminal or run `source ~/.zshrc` after `init.sh`.
+2. **`Wally` packages not found**: Run `bash update.sh` to install dependencies
+3. **`Rojo` connection issues**: Make sure the `Rojo` server is running (`bash serve.sh`) and that you have the `Rojo` plugin installed in `Roblox Studio`

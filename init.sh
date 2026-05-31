@@ -1,7 +1,11 @@
 #!/bin/bash
 set -euo pipefail
 
-# Installs Rokit (rojo-rbx/rokit) instead of Aftman, then runs your usual tool steps.
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=scripts/lib/platform.sh
+source "$SCRIPT_DIR/scripts/lib/platform.sh"
+
+# Install Rokit if missing, then run update.sh and install the Rojo plugin.
 
 if command -v rokit >/dev/null 2>&1; then
     echo "You've already installed rokit on your PC"
@@ -9,7 +13,6 @@ else
     REPO="rojo-rbx/rokit"
     GITHUB_API_URL="https://api.github.com/repos/${REPO}/releases/latest"
 
-    # Detect OS
     OS="$(uname -s | tr '[:upper:]' '[:lower:]')"
     case "$OS" in
         darwin) OS="macos" ;;
@@ -21,7 +24,6 @@ else
             ;;
     esac
 
-    # Detect arch
     ARCH="$(uname -m)"
     case "$ARCH" in
         x86_64|x86-64) ARCH="x86_64" ;;
@@ -32,9 +34,8 @@ else
             ;;
     esac
 
-    # Get latest tag (e.g. v1.2.0)
     RELEASE_JSON="$(curl -sSf -H "X-GitHub-Api-Version: 2022-11-28" "$GITHUB_API_URL")"
-    TAG="$(echo "$RELEASE_JSON" | grep -oP '"tag_name"\s*:\s*"\Kv[^"]+')"
+    TAG="$(github_release_tag "$RELEASE_JSON" || true)"
 
     if [[ -z "${TAG:-}" ]]; then
         echo "Failed to determine latest rokit release tag."
@@ -59,7 +60,7 @@ else
     echo "Downloading rokit from $URL..."
     curl -L -o "$TMPDIR/rokit.zip" "$URL"
 
-    # Extract only the binary from the zip (the official zips contain rokit/rokit.exe at root)
+    # Official release zips contain only rokit/rokit.exe at the archive root.
     unzip -o -q "$TMPDIR/rokit.zip" "$BIN" -d "$TMPDIR"
 
     if [[ ! -f "$TMPDIR/$BIN" ]]; then
@@ -74,27 +75,11 @@ else
     echo "Running rokit self-install..."
     "$TMPDIR/$BIN" self-install
 
-    # Ensure PATH includes Rokit's bin directory
-    line_to_add='export PATH=$PATH:~/.rokit/bin'
-
-    if [ -f "$HOME/.bashrc" ]; then
-        if ! grep -Fxq "$line_to_add" "$HOME/.bashrc"; then
-            echo "$line_to_add" >> "$HOME/.bashrc"
-        fi
-    else
-        echo "$line_to_add" > "$HOME/.bashrc"
-    fi
-
-    # Load PATH for current shell (best effort)
-    # shellcheck disable=SC1090
-    source "$HOME/.bashrc" || true
+    ensure_rokit_path_in_shell_rc
+    export_rokit_path_for_session
 fi
 
-# Equivalent flow to your old script:
-rokit install
-# shellcheck disable=SC1090
-source "$HOME/.bashrc" || true
-./update.sh
-# shellcheck disable=SC1090
-source "$HOME/.bashrc" || true
+export_rokit_path_for_session
+bash "$SCRIPT_DIR/update.sh"
+export_rokit_path_for_session
 rojo plugin install

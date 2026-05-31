@@ -1,12 +1,12 @@
 #!/bin/bash
 
 projects=$(find . -maxdepth 1 -iname "*.project.json" -exec basename {} .project.json \;)
-project_count=$(echo "$projects" | wc -l)
+project_count=$(printf '%s\n' "$projects" | sed '/^$/d' | wc -l | tr -d ' ')
 
 if [ -z "$projects" ]; then
     echo -e "\e[31mNo project file found!\e[0m"
     exit 1
-elif [ $project_count -eq 1 ]; then
+elif [ "$project_count" -eq 1 ]; then
     project=$(echo "$projects")
     echo "Automatically starting the only project: $project"
     rojo sourcemap "$project.project.json" > sourcemap.json
