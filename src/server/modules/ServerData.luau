@@ -6,7 +6,7 @@ local GetBridge = require(ReplicatedStorage.util.GetBridge)
 local IsValidUTF8 = require(ReplicatedStorage.util.IsValidUTF8)
 local Logger = require(ReplicatedStorage.util.Logger)
 local MergeDictionaries = require(ReplicatedStorage.util.MergeDictionaries)
-local ProfileService = require(ReplicatedStorage.package.ProfileService)
+local ProfileStore = require(ReplicatedStorage.package.ProfileStore)
 local ProfileTypes = require(ReplicatedStorage.shared.reflex.ProfileTypes)
 local Promise = require(ReplicatedStorage.package.Promise)
 local Reflex = require(ReplicatedStorage.package.Reflex)
@@ -39,7 +39,7 @@ export type Data = ProfileTypes.PlayerState
 
 export type ServerPlayerProfile = {
 	player: Player,
-	profileStore: Reflex.Producer<any, any> & { Data: Data },
+	profileStore: any,
 	producer: ProfileTypes.PlayerProducer,
 	nextActionIsReplicated: boolean,
 	slices: { string },
@@ -51,6 +51,9 @@ export type Default = {
 	gameProducer: gameProfile.Producer,
 	profiles: { [Player]: ServerPlayerProfile? },
 	playerDataLoadedEvent: Signal.Signal<Player, ServerPlayerProfile>,
+	_started: boolean?,
+	_shutdownBound: boolean?,
+	_shuttingDown: boolean?,
 	GetPlayerProfile: (self: Default, player: Player) -> ServerPlayerProfile?,
 	WaitForPlayerProfile: (self: Default, player: Player) -> Promise.TypedPromise<ServerPlayerProfile>,
 	GetPlayerProducerAsync: (self: Default, player: Player) -> Promise.TypedPromise<ProfileTypes.PlayerProducer>,
@@ -68,6 +71,7 @@ ServerData.playerDataLoadedEvent = Signal.new()
 
 local loadingProfiles: { [Player]: boolean } = {}
 local gameStoreReady: { [Player]: boolean } = {}
+local endingSessions: { [Player]: boolean } = {}
 
 local PlayerReady = GetBridge("PlayerReady")
 
@@ -92,6 +96,78 @@ GetGameData.Parent = ReplicatedStorage
 
 local function getPlayerKey(userId: number): string
 	return GameConfig.data.playerKeyPattern:format(userId)
+end
+
+local function buildDefaultTemplate(profileModules: { [string]: any }): { [string]: any }
+	local defaultTemplate = {}
+
+	for key: string, module: any in profileModules do
+		if key == "game" then
+			continue
+		end
+
+		if key == "player" then
+			defaultTemplate.player = playerProfile.DEFAULT_STATE
+		else
+			defaultTemplate[key] = module.DEFAULT_STATE
+		end
+	end
+
+	if defaultTemplate.player == nil then
+		defaultTemplate.player = playerProfile.DEFAULT_STATE
+	end
+
+	return defaultTemplate
+end
+
+local function buildSaveData(profile: ServerPlayerProfile): { [string]: any }
+	local combinedState = profile.producer:getState()
+	local saveableData = {}
+	local exceptions = {}
+
+	for key: string, module in getProfileModules() do
+		if module.SAVE_EXCEPTIONS then
+			exceptions[key] = module.SAVE_EXCEPTIONS
+		end
+	end
+
+	for sliceName, stateSlice in combinedState do
+		if not table.find(profile.slices, sliceName) then
+			continue
+		end
+
+		local data = {}
+		local sliceExceptions = exceptions[sliceName] or {}
+		for key, value in stateSlice do
+			if table.find(sliceExceptions, key) ~= nil then
+				continue
+			end
+
+			if typeof(value) == "string" and not IsValidUTF8(value) then
+				continue
+			end
+
+			data[key] = value
+		end
+
+		saveableData[sliceName] = data
+	end
+
+	if saveableData.player then
+		saveableData.player.lastOnline = math.floor(workspace:GetServerTimeNow())
+	end
+
+	return saveableData
+end
+
+local PROFILE_MODULES = getProfileModules()
+local PLAYER_STORE = ProfileStore.New(DATASTORE_KEY, buildDefaultTemplate(PROFILE_MODULES))
+
+local function clearPlayerRuntimeState(player: Player): ()
+	loadingProfiles[player] = nil
+	gameStoreReady[player] = nil
+	endingSessions[player] = nil
+	player:SetAttribute("DataLoaded", nil)
 end
 
 GetPlayerData.OnServerInvoke = function(player: Player): ...any
@@ -181,31 +257,16 @@ function ServerData:PlayerAdded(player: Player): ()
 
 	loadingProfiles[player] = true
 
-	local profileModules = getProfileModules()
+	local profileModules = PROFILE_MODULES
+	local profileStore = PLAYER_STORE:StartSessionAsync(getPlayerKey(player.UserId), {
+		Cancel = function(): boolean
+			return not player:IsDescendantOf(Players) or self._shuttingDown == true
+		end,
+	})
 
-	local defaultTemplate = {}
-	for key: string, module: any in profileModules do
-		if key == "game" then
-			continue
-		end
-
-		if key == "player" then
-			defaultTemplate.player = playerProfile.DEFAULT_STATE
-		else
-			defaultTemplate[key] = module.DEFAULT_STATE
-		end
-	end
-
-	if defaultTemplate.player == nil then
-		defaultTemplate.player = playerProfile.DEFAULT_STATE
-	end
-
-	local ProfileStore = ProfileService.GetProfileStore(DATASTORE_KEY, defaultTemplate)
-	local profileStore = ProfileStore:LoadProfileAsync(getPlayerKey(player.UserId))
 	if not profileStore then
 		player:Kick("Failed to load your data. Please try again later.")
-
-		loadingProfiles[player] = nil
+		clearPlayerRuntimeState(player)
 
 		return
 	end
@@ -213,21 +274,37 @@ function ServerData:PlayerAdded(player: Player): ()
 	profileStore:AddUserId(player.UserId)
 	profileStore:Reconcile()
 
-	profileStore:ListenToRelease(function(): ()
+	profileStore.OnSessionEnd:Connect(function(): ()
+		local isExpectedEnd = endingSessions[player] == true or self._shuttingDown == true
 		self.profiles[player] = nil
+		clearPlayerRuntimeState(player)
 
-		player:Kick("Your data has been loaded on another server.")
+		if isExpectedEnd then
+			return
+		end
+
+		if player:IsDescendantOf(Players) then
+			player:Kick("Your data has been loaded on another server.")
+		end
+	end)
+
+	profileStore.OnLastSave:Connect(function(_reason: string): ()
+		local profile: ServerPlayerProfile? = self.profiles[player]
+		if profile then
+			profileStore.Data = buildSaveData(profile)
+		end
 	end)
 
 	if not player:IsDescendantOf(Players) then
-		profileStore:Release()
-		loadingProfiles[player] = nil
+		endingSessions[player] = true
+		profileStore:EndSession()
+		clearPlayerRuntimeState(player)
 
 		return
 	end
 
 	local data = profileStore.Data
-	if data.player.tutorial then
+	if data.player and data.player.tutorial then
 		data = {}
 	end
 
@@ -301,54 +378,28 @@ end
 function ServerData:PlayerRemoving(player: Player): ()
 	local profile: ServerPlayerProfile? = self.profiles[player]
 	if not profile then
+		clearPlayerRuntimeState(player)
 		return
 	end
 
-	profile.producer.secureSetLastSeenTimestamp()
-
-	local combinedState = profile.producer:getState()
-
-	local saveableData = {}
-	local exceptions = {}
-
-	for key: string, module in getProfileModules() do
-		if module.SAVE_EXCEPTIONS then
-			exceptions[key] = module.SAVE_EXCEPTIONS
-		end
+	if (profile.producer :: any).secureSetLastSeenTimestamp then
+		(profile.producer :: any).secureSetLastSeenTimestamp()
 	end
 
-	for sliceName, stateSlice in combinedState do
-		local data = {}
-
-		if not table.find(profile.slices, sliceName) then
-			continue
-		end
-
-		local sliceExceptions = exceptions[sliceName] or {}
-		for key, value in stateSlice do
-			if table.find(sliceExceptions, key) ~= nil then
-				continue
-			end
-
-			if typeof(value) == "string" and not IsValidUTF8(value) then
-				continue
-			end
-
-			data[key] = value
-		end
-
-		saveableData[sliceName] = data
-	end
-
-	saveableData.player.lastOnline = math.floor(workspace:GetServerTimeNow())
-
-	profile.profileStore.Data = saveableData :: any
-	profile.profileStore:Release()
+	endingSessions[player] = true
+	profile.profileStore.Data = buildSaveData(profile)
+	profile.profileStore:EndSession()
 	self.profiles[player] = nil
-	gameStoreReady[player] = nil
+	clearPlayerRuntimeState(player)
 end
 
 function ServerData:Init(): ()
+	if self._started == true then
+		return
+	end
+
+	self._started = true
+
 	PlayerReady:Connect(function(player: Player): ()
 		ServerData:GetPlayerProducerAsync(player):expect().setPlayerReady()
 	end)
@@ -434,9 +485,14 @@ function ServerData:Init(): ()
 		self.gameProducer[data.name](unpack(data.arguments))
 	end)
 
-	for _index: number, player: Player in Players:GetPlayers() do
-		task.spawn(function(): ()
-			self:PlayerAdded(player)
+	if not self._shutdownBound then
+		self._shutdownBound = true
+		game:BindToClose(function()
+			self._shuttingDown = true
+
+			for _, player: Player in Players:GetPlayers() do
+				self:PlayerRemoving(player)
+			end
 		end)
 	end
 end

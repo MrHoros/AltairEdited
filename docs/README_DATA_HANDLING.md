@@ -1,6 +1,6 @@
 # Data Handling in Altair
 
-This document provides an overview of the data handling system implemented in the Altair project, based on the approach used in the Helios project.
+This document provides an overview of the data handling system implemented in this Altair-derived branch.
 
 ## Overview
 
@@ -12,7 +12,7 @@ The data handling system consists of two main components:
 The system uses the following libraries:
 
 - **Reflex** for state management
-- **ProfileService** for data persistence
+- **ProfileStore** for player profile persistence
 - **Signal** for event handling
 - **Promise** for asynchronous operations
 - **Bridgenet2** for networking (indirectly through remote events)
@@ -23,8 +23,9 @@ The `ServerData` module (`src/server/modules/ServerData.luau`) manages server-si
 
 ### Server-Side Player Data Management
 
-- Loading player data from the datastore when a player joins
-- Saving player data to the datastore when a player leaves
+- Starting a ProfileStore session when a player joins
+- Ending the ProfileStore session when a player leaves
+- Saving player data through ProfileStore autosave and final `EndSession`
 - Providing access to player data through a producer pattern
 - Replicating player data changes to the client
 
@@ -127,18 +128,19 @@ ClientData.clientProducer.setLocalSetting("musicVolume", 0.8)
 
 ## Data Flow
 
-1. When a player joins, the server loads their data from the datastore
+1. When a player joins, the server starts a ProfileStore session
 2. The server creates a producer for the player's data
 3. The client requests the player's data from the server
 4. The client creates a producer for the player's data
 5. When the server or client modifies the data, the changes are replicated to the other side
-6. When a player leaves, the server saves their data to the datastore
+6. When a player leaves, the server writes the producer state into `Profile.Data` and calls `EndSession`
 
 ## Security Considerations
 
 - Secure actions (prefixed with "secure") cannot be replicated from the client to the server
 - The server validates all data received from clients
-- The server handles data persistence, ensuring data is saved properly
+- ProfileStore handles session locking, autosave, and session conflict handling
+- The server still owns data shape, migration/sanitization, and producer-to-save conversion
 
 ## Implementation Details
 
@@ -147,6 +149,7 @@ ClientData.clientProducer.setLocalSetting("musicVolume", 0.8)
 The `ServerData` module is implemented as a controller in the Altair project's module system. It has the following key components:
 
 - `profiles` - A table mapping players to their profiles
+- `loadingProfiles` - A table preventing duplicate session starts for the same player
 - `gameProducer` - A producer for game-wide data
 - `playerDataLoadedEvent` - A signal fired when a player's data is loaded
 - `GetPlayerProfile` - A function to get a player's profile
@@ -156,6 +159,8 @@ The `ServerData` module is implemented as a controller in the Altair project's m
 - `PlayerAdded` - A function called when a player joins
 - `PlayerRemoving` - A function called when a player leaves
 - `Init` - A function called when the module is initialized
+
+The module uses `ProfileStore.New(...)`, `StartSessionAsync(...)`, `OnSessionEnd`, `OnLastSave`, and `EndSession()` instead of the older ProfileService `GetProfileStore(...)`, `LoadProfileAsync(...)`, `ListenToRelease(...)`, and `Release()` API.
 
 ### Client-Side Implementation
 
