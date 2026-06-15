@@ -8,18 +8,15 @@ export type DevProductSet = {
 
 export type DevProductData = number | Data | { data: { [any]: Data } }
 
-export type DevProduct =
-	DevProductData
-	& ({
-		exec: Exec? | { Exec }?,
-	} | {
-		execs: Exec? | { Exec }?,
-	})
-	& ({
-		offer: string? | { string }?,
-	} | {
-		offers: string? | { string }?,
-	})
+export type DevProduct = DevProductData & ({
+	exec: Exec? | { Exec }?,
+} | {
+	execs: Exec? | { Exec }?,
+}) & ({
+	offer: string? | { string }?,
+} | {
+	offers: string? | { string }?,
+})
 
 export type Data = {
 	id: number,

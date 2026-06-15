@@ -216,35 +216,33 @@ function ServerData:GetPlayerProfile(player: Player): ServerPlayerProfile?
 end
 
 function ServerData:WaitForPlayerProfile(player: Player): Promise.TypedPromise<ServerPlayerProfile>
-	return Promise.new(function(
-		resolve: (ServerPlayerProfile) -> (),
-		_reject: (unknown) -> (),
-		onCancel: (() -> ()) -> ()
-	): ()
-		local profile = self:GetPlayerProfile(player)
-		local connection
+	return Promise.new(
+		function(resolve: (ServerPlayerProfile) -> (), _reject: (unknown) -> (), onCancel: (() -> ()) -> ()): ()
+			local profile = self:GetPlayerProfile(player)
+			local connection
 
-		if profile then
-			resolve(profile)
+			if profile then
+				resolve(profile)
 
-			return
-		end
-
-		connection = self.playerDataLoadedEvent:Connect(function(newPlayer: Player, data: ServerPlayerProfile): ()
-			if newPlayer ~= player then
 				return
 			end
 
-			connection:Disconnect()
-			resolve(data)
-		end)
+			connection = self.playerDataLoadedEvent:Connect(function(newPlayer: Player, data: ServerPlayerProfile): ()
+				if newPlayer ~= player then
+					return
+				end
 
-		onCancel(function(): ()
-			if connection then
 				connection:Disconnect()
-			end
-		end)
-	end)
+				resolve(data)
+			end)
+
+			onCancel(function(): ()
+				if connection then
+					connection:Disconnect()
+				end
+			end)
+		end
+	)
 end
 
 function ServerData:GetPlayerProducerAsync(player: Player): Promise.TypedPromise<ProfileTypes.PlayerProducer>

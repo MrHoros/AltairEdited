@@ -4,7 +4,7 @@ local Signal = require(ReplicatedStorage.package.Signal)
 
 local signals = {}
 
-return function(signalName: string): Signal.Signal<>
+return function(signalName: string): Signal.Signal<nil>
 	if not signals[signalName] then
 		signals[signalName] = Signal.new()
 	end

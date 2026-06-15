@@ -40,7 +40,7 @@ export type DevLogger = {
 	uiListLayout: UIListLayout,
 	textLabel: TextLabel,
 	loaded: boolean,
-	loadedSignal: Signal.Signal<>,
+	loadedSignal: Signal.Signal<nil>,
 }
 
 local DevLogger: DevLogger = {} :: any

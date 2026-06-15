@@ -317,10 +317,7 @@ function ServerMonetization:CheckOffer(player: Player, name: string): boolean
 	return Conditions:CheckCondition(player, "offers", name)
 end
 
-function ServerMonetization:ProcessDevProductReceipt(
-	player: Player,
-	receiptInfo: APIDictionaries.receiptInfo
-): boolean
+function ServerMonetization:ProcessDevProductReceipt(player: Player, receiptInfo: APIDictionaries.receiptInfo): boolean
 	local productId: string = tostring(receiptInfo.ProductId)
 	local data = self.idIndexedMonetizationReference.products[productId]
 	if not data then

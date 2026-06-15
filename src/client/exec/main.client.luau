@@ -113,9 +113,7 @@ local function publishLoadingScreenProgress(isReady: boolean?): ()
 	end
 
 	local total: number = getVisibleTotalControllerCount()
-	local progress: number = if total > 0
-		then (loadedControllerCount + startedControllerCount) / (total * 2)
-		else 0
+	local progress: number = if total > 0 then (loadedControllerCount + startedControllerCount) / (total * 2) else 0
 	progress = math.clamp(progress, 0, 1)
 
 	if isReady == true then

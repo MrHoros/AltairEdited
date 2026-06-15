@@ -92,7 +92,7 @@ function RaycastController:Init(): ()
 		raycastParams.FilterType = Enum.RaycastFilterType.Include
 		raycastParams.FilterDescendantsInstances = CollectionService:GetTagged("RaycastDetect")
 
-		Promise.retryWithDelay(function(): Promise.TypedPromise<>
+		Promise.retryWithDelay(function(): Promise.TypedPromise<nil>
 			return Promise.new(function(_resolve: () -> (), reject: () -> ()): ()
 				reject(self:RaycastPlayerStanding(raycastParams))
 			end)

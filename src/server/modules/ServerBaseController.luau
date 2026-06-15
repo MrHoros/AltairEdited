@@ -116,21 +116,23 @@ local function waitForProfileThenClaimBase(self: Default, player: Player): any
 		return
 	end
 
-	return waitForProfileOrLeave(serverData, player):andThen(function(result: string)
-		if result == PLAYER_LEFT_RESULT then
-			return
-		end
+	return waitForProfileOrLeave(serverData, player)
+		:andThen(function(result: string)
+			if result == PLAYER_LEFT_RESULT then
+				return
+			end
 
-		if not isPlayerActive(player) then
-			return
-		end
+			if not isPlayerActive(player) then
+				return
+			end
 
-		chainBaseMutation(`assign:{player.Name}`, function()
-			claimPlayerBase(player)
+			chainBaseMutation(`assign:{player.Name}`, function()
+				claimPlayerBase(player)
+			end)
 		end)
-	end):catch(function(err: unknown)
-		Logger.warn(`ServerBaseController: failed waiting for profile for {player.Name}: {tostring(err)}`)
-	end)
+		:catch(function(err: unknown)
+			Logger.warn(`ServerBaseController: failed waiting for profile for {player.Name}: {tostring(err)}`)
+		end)
 end
 
 function ServerBaseController:Init(): ()

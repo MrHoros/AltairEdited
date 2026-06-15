@@ -222,7 +222,8 @@ end
 local function waitForStartOrSkip(loadingScreen: ScreenGui, skipButton: GuiButton): ()
 	setSkipButtonVisible(skipButton, true)
 
-	local startReadyPromise: Promise.Promise = waitForLoadingAttribute(loadingScreen, LOADING_ATTRIBUTE_CLIENT_START_READY)
+	local startReadyPromise: Promise.Promise =
+		waitForLoadingAttribute(loadingScreen, LOADING_ATTRIBUTE_CLIENT_START_READY)
 	local skipPromise: Promise.Promise = Promise.fromEvent(skipButton.Activated):andThen(function(): ()
 		loadingScreen:SetAttribute(LOADING_ATTRIBUTE_SKIP_REQUESTED, true)
 	end)

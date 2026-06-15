@@ -544,9 +544,7 @@ for _index: number, required: unknown in tagModules do
 			Logger.print(`ServerBootstrap[TagInit] done {getModuleName(required)} in {formatSeconds(duration)}`)
 		else
 			Logger.warn(
-				`ServerBootstrap[TagInit] failed {getModuleName(required)} in {formatSeconds(duration)}: {tostring(
-					err
-				)}`
+				`ServerBootstrap[TagInit] failed {getModuleName(required)} in {formatSeconds(duration)}: {tostring(err)}`
 			)
 		end
 	end)

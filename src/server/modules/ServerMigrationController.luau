@@ -110,9 +110,7 @@ function ServerMigrationController:TeleportPlayers(players: { Player }): boolean
 		end
 
 		Logger.warn(
-			`ServerMigrationController: TeleportAsync attempt {attempt}/{TELEPORT_RETRY_COUNT} failed: {tostring(
-				err
-			)}`
+			`ServerMigrationController: TeleportAsync attempt {attempt}/{TELEPORT_RETRY_COUNT} failed: {tostring(err)}`
 		)
 
 		if attempt < TELEPORT_RETRY_COUNT then

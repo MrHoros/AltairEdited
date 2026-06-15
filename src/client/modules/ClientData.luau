@@ -66,11 +66,7 @@ local pendingPlayerReplicationEvents: { { name: string, arguments: { any } } } =
 local pendingGameReplicationEvents: { { name: string, arguments: { any } } } = {}
 
 local function waitForSignal<T>(signal: Signal.Signal<T>, getValue: () -> T?): Promise.TypedPromise<T>
-	return Promise.new(function(
-		resolve: (T) -> (),
-		_reject: (unknown) -> (),
-		onCancel: (() -> ()) -> ()
-	): ()
+	return Promise.new(function(resolve: (T) -> (), _reject: (unknown) -> (), onCancel: (() -> ()) -> ()): ()
 		local value: T? = getValue()
 		if value then
 			resolve(value)
@@ -165,9 +161,7 @@ function ClientData:GetGameProducerAsync(): Promise.TypedPromise<gameProfile.Pro
 			return producer
 		end
 
-		error(
-			`Game producer not initialized yet! Change calling controller index to higher number than {self.index}!`
-		)
+		error(`Game producer not initialized yet! Change calling controller index to higher number than {self.index}!`)
 	end)
 end
 

@@ -10,7 +10,7 @@ export type Default = {
 	path: InitializerTypes.ClientPath,
 	instance: GuiObject,
 	starTemplate: ImageLabel & { UIScale: UIScale },
-	loopPromise: Promise.TypedPromise<>,
+	loopPromise: Promise.TypedPromise<nil>,
 	__index: Default,
 	new: (instance: TextLabel, path: InitializerTypes.ClientPath) -> Default,
 	BuildTemplateStar: (self: Default) -> (),
@@ -58,7 +58,7 @@ function StarAnimation:BuildTemplateStar(): ()
 end
 
 function StarAnimation:Animate(): ()
-	self.loopPromise = Promise.retryWithDelay(function(): Promise.TypedPromise<>
+	self.loopPromise = Promise.retryWithDelay(function(): Promise.TypedPromise<nil>
 		return Promise.new(function(_resolve: () -> (), reject: () -> ()): ()
 			local star: ImageLabel & { UIScale: UIScale } = self.starTemplate:Clone()
 			star.Visible = true
