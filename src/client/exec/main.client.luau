@@ -18,6 +18,10 @@ sharedFolder:WaitForChild("config")
 sharedFolder:WaitForChild("modules")
 sharedFolder:WaitForChild("model")
 
+local LOADING_SCREEN_NAME: string = "LoadingScreen"
+local LOADING_SCREEN_SUBTEXT_FORMAT: string = "Loading controllers %d/%d"
+local DEFAULT_LOADING_CONTROLLER_TOTAL: number = 20
+
 local path = {}
 path.controller = {}
 path.module = {}
@@ -31,6 +35,70 @@ local tagInstances = {}
 local loadFirst = {}
 local loadFirstEntries = {}
 local load = {}
+local loadedControllerCount: number = 0
+local totalControllerCount: number = 0
+local loadingScreenGui: ScreenGui? = nil
+local loadingScreenSubText: TextLabel? = nil
+local clientBootstrapReady: boolean = false
+
+local function getVisibleTotalControllerCount(): number
+	return if totalControllerCount > 0 then totalControllerCount else DEFAULT_LOADING_CONTROLLER_TOTAL
+end
+
+local function publishLoadingScreenProgress(isReady: boolean?): ()
+	if isReady == true then
+		clientBootstrapReady = true
+	end
+
+	if loadingScreenSubText then
+		loadingScreenSubText.Text =
+			string.format(LOADING_SCREEN_SUBTEXT_FORMAT, loadedControllerCount, getVisibleTotalControllerCount())
+	end
+
+	if isReady == true and loadingScreenGui then
+		loadingScreenGui:Destroy()
+		loadingScreenGui = nil
+		loadingScreenSubText = nil
+	end
+end
+
+local function markControllerLoaded(): ()
+	if loadedControllerCount >= totalControllerCount then
+		return
+	end
+
+	loadedControllerCount += 1
+	publishLoadingScreenProgress()
+end
+
+task.spawn(function(): ()
+	local playerGui: PlayerGui? = LocalPlayer:FindFirstChild("PlayerGui") :: PlayerGui?
+		or LocalPlayer:WaitForChild("PlayerGui", 10) :: PlayerGui?
+	if not playerGui then
+		return
+	end
+
+	local gui: ScreenGui? = playerGui:FindFirstChild(LOADING_SCREEN_NAME) :: ScreenGui?
+		or playerGui:WaitForChild(LOADING_SCREEN_NAME, 10) :: ScreenGui?
+	if not gui or not gui:IsA("ScreenGui") then
+		return
+	end
+
+	loadingScreenGui = gui
+
+	local mainFrame: Frame? = gui:FindFirstChild("MainFrame") :: Frame?
+	if not mainFrame or not mainFrame:IsA("Frame") then
+		return
+	end
+
+	local subText: TextLabel? = mainFrame:FindFirstChild("LoadingSubText") :: TextLabel?
+	if not subText or not subText:IsA("TextLabel") then
+		return
+	end
+
+	loadingScreenSubText = subText
+	publishLoadingScreenProgress(clientBootstrapReady)
+end)
 
 local folders: { Folder } = ReplicatedStorage:WaitForChild("client"):GetChildren()
 table.insert(folders, sharedFolder:WaitForChild("modules"))
@@ -114,6 +182,9 @@ for index: number = 1, #loadFirstEntries do
 
 	table.insert(loadFirst, required)
 end
+
+totalControllerCount = #loadFirst + #load
+publishLoadingScreenProgress(false)
 
 local function InitController(required: unknown): ()
 	required.path = path
@@ -376,6 +447,8 @@ for index: number = 1, #loadFirst do
 	if not success then
 		Logger.warn(`Failed to initialize priority controller of type {required.type or "unknown"}: {err}`)
 	end
+
+	markControllerLoaded()
 end
 
 for _index: number, required: unknown in load do
@@ -388,6 +461,8 @@ for _index: number, required: unknown in load do
 	if not success then
 		Logger.warn(`Failed to initialize controller of type {required.type or "unknown"}: {err}`)
 	end
+
+	markControllerLoaded()
 end
 
 for _index: number, required: unknown in moduleTags do
@@ -422,6 +497,8 @@ for _index: number, required: unknown in load do
 		Logger.warn(`Failed to start controller {required.type or "unknown"}: {err}`)
 	end
 end
+
+publishLoadingScreenProgress(true)
 
 Players.PlayerRemoving:Connect(function(player: Player): ()
 	for _index: number, class: unknown in path.controller do

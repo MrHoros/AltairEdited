@@ -1,5 +1,8 @@
 # Altair Migration Notes
 
+> Historical reference for maintainers. New games should start from this repository directly.
+> Primary onboarding: [README_GETTING_STARTED.md](README_GETTING_STARTED.md).
+
 ## Source Baseline
 
 This branch starts from the Altair `3.0.2` lineage. The exact baseline commit is
@@ -225,5 +228,6 @@ Studio smoke test:
 - Decide whether to move ProfileStore into `ServerPackages` or keep the Wally shared package mount.
 - Eventually stop auto-loading `ReplicatedStorage.shared.modules` from server bootstrap, but only after shared modules are split into explicit server/client ownership.
 - Add domain-specific migrations only when the migrated CoreScripts configs/profiles require them.
+- Keep optional game-specific ports disabled by default until the target game provides their required Studio instances.
 
 For future feature ports, use [Porting Guidelines](README_PORTING_GUIDELINES.md).

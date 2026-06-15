@@ -18,7 +18,7 @@ local function findPath(root: Instance, path: { string }): Instance?
 	local current: Instance? = root
 	for _, childName in ipairs(path) do
 		if not current then
-			return nil
+			return
 		end
 
 		current = current:FindFirstChild(childName)
@@ -33,7 +33,7 @@ local function getBaseTemplate(): Model?
 		return template
 	end
 
-	return nil
+	return
 end
 
 local function getOrCreateBasesFolder(): Folder
@@ -70,11 +70,6 @@ local function removeStarterTemplateChildren(model: Model): ()
 end
 
 local function setModelPivot(model: Model, initPart: BasePart): ()
-	if model.PrimaryPart then
-		model:SetPrimaryPartCFrame(initPart.CFrame)
-		return
-	end
-
 	model:PivotTo(initPart.CFrame)
 end
 
@@ -174,13 +169,26 @@ function Base:SetPlayerAvatar(player: Player?): ()
 	end
 end
 
-function Base:Reserve(player: Player): ()
+function Base:TryReserve(player: Player): boolean
+	if self.Reserved or self.Owner then
+		return false
+	end
+
 	self.Reserved = true
 	self.Owner = player
+
+	return true
+end
+
+function Base:Reserve(player: Player): ()
+	self:TryReserve(player)
 end
 
 function Base:Claim(player: Player)
-	self.Owner = player
+	if self.Owner ~= player then
+		return
+	end
+
 	self.Reserved = false
 
 	if not self.Model then
@@ -188,7 +196,7 @@ function Base:Claim(player: Player)
 	end
 
 	if not self.Model then
-		return nil
+		return
 	end
 
 	player:SetAttribute("BaseIndex", self.Model.Name)
@@ -201,7 +209,11 @@ function Base:Claim(player: Player)
 	return self
 end
 
-function Base:UnClaim(): ()
+function Base:UnClaim(player: Player?): ()
+	if player and self.Owner ~= player then
+		return
+	end
+
 	if self.Owner then
 		self.Owner:SetAttribute("BaseIndex", nil)
 	end

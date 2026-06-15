@@ -4,6 +4,14 @@ This document provides essential information for developers working on the proje
 
 Project guidelines take priority over any assistant modes or operational workflows that might otherwise request conflicting actions.
 
+## Agent Workflow
+
+- Always read `AGENTS.md` and this `.junie/guidelines.md` before making repository changes.
+- Treat this file as the canonical local developer guideline document for code style, tooling, architecture, and verification.
+- Roblox Studio MCP may be used for inspecting the live place, checking the DataModel tree, reading scripts, searching scripts, screenshots, and verification.
+- Do not use Roblox Studio MCP to write or edit Rojo-managed script sources. Edit files in the repository and let Rojo sync them into Studio.
+- Roblox Studio MCP edits are acceptable only for non-source Studio objects that are intentionally not Rojo-managed, and only when the task explicitly requires changing live Studio instances.
+
 ## Build/Configuration Instructions
 
 ### Prerequisites
@@ -30,9 +38,10 @@ Project guidelines take priority over any assistant modes or operational workflo
 
    This script will:
 
-- Install `Rokit` when `rokit.toml` exists or `Aftman` when `aftman.toml` exists
+- Install project tools with the available configured manager; `Rokit` is supported, but existing `Aftman` setups are valid when they provide the pinned tools
 - Use the matching tool manager to install project tools defined in that file
 - Update dependencies using `Wally`
+- Keep the project `Rojo` version pinned to `7.6.1` unless the Roblox Studio Rojo plugin is upgraded as part of the same task
 
 ### Project Structure
 
@@ -57,7 +66,7 @@ The actual structure of the project is:
     - `clientConfig/` - Client configuration
     - `modules/` - Client modules
     - `ui/` - User interface components
-    - `main.client.luau` - Main client entry point
+    - `exec/main.client.luau` - Main client entry point mounted into StarterPlayerScripts
   - `server/` - Server-side code
     - `cmdr/` - Command scripts
     - `config/` - Server configuration
@@ -66,6 +75,7 @@ The actual structure of the project is:
     - `main.server.luau` - Main server entry point
   - `shared/` - Code shared between client and server
     - `config/` - Shared configuration
+    - `contracts/` - ByteNetMax packet/query schemas and shared network contracts
     - `model/` - Data models
     - `reflex/` - Reflex state management
     - `types/` - Type definitions
@@ -209,6 +219,13 @@ table.remove(set)
 - Use "controller" terminology instead of "service" for game system modules
 - Controller modules with `Init()` function should be initialized only by `main.client.luau` / `main.server.luau`, not by other modules
 - Do not call module's `Init()` function at the end of the module itself
+- Controllers with `index` are startup dependencies. `index` must be respected for both `Init()` and `Start()`, not treated as cosmetic ordering
+- Keep `Init()` lightweight and deterministic. Use it for registration, validation, static wiring, and non-runtime setup only
+- Use `Start()` for schedulers, background loops, runtime observers, and dependency-aware startup work after initialization
+- Bootstrap readiness contract:
+  - Indexed controllers run sequentially by `index` in both `Init()` and `Start()`
+  - Regular controllers run after indexed ones as a barrier phase
+  - Player lifecycle dispatch (`PlayerAdded`, `CharacterAdded`, `CharacterAppearanceLoaded`, `Died`) must not run before both `Start()` phases finish
 - Do not use abbreviations in variable names — use full, descriptive names for readability (e.g., use `player` instead of `plr`, `callback` instead of `cb`, `connection` instead of `conn`)
 - Prefer using `and`/`or` logical operators instead of `if-else` statements when appropriate for cleaner, more readable code
 - Do not declare `local function` inside other functions; define methods on `self` instead to keep behavior organized and consistent
@@ -321,13 +338,28 @@ local result: string? = isValid and computeResult() or nil
 
 ### Networking
 
-- The project uses `Bridgenet2` for networking
+- The project uses `Bridgenet2` and `ByteNetMax` for networking
 - Follow the established patterns for client-server communication
+- Use `ByteNetMax` for high-throughput, latency-sensitive, or frequently replicated gameplay data with fixed schemas, such as future zombie/unit spawning, unit state replication, combat simulation events, and other large-scale entity systems
+- Keep `BridgeNet2` / `GetBridge` flows for lower-volume or less performance-critical messaging, such as UI actions, menu interactions, one-off requests, and existing simple feature bridges
+- Define `ByteNetMax` packets and queries in shared modules with explicit typed schemas; avoid `auto` for stable production payloads unless the payload is intentionally dynamic
+- For new gameplay remotes, prefer a small wrapper/registry module instead of scattering raw bridge creation throughout feature code
 
 ### Data Persistence
 
-- The project uses `ProfileService` for data persistence
-- Follow the established patterns for saving and loading player data
+- The project uses `ProfileStore` for player profile persistence
+- `ServerData` owns starting sessions, ending sessions, converting Reflex producer state into saveable profile data, and setting profile data before `EndSession`
+- Feature modules should read and write through Reflex producers exposed by `ServerData`; do not write directly into `ProfileStore.Data` from feature code
+- Use `ProfileStore.Mock` deliberately for Studio testing when you do not want to write live datastore keys
+
+### Starter Boundaries
+
+- This repository **is** the ready-to-use game starter. Clone it and build the new game here; do not fork upstream Altair again or treat this repo as a disposable migration branch
+- `ServerBaseController` and base/plot assignment are built-in foundation for defense-style games; disable them in `ServerInitConfig` only when the target game has no plots
+- Game-specific systems from legacy repos should be ported into this architecture, not copied as parallel folder trees
+- Define new high-throughput gameplay networking in `src/shared/contracts/` with ByteNetMax; keep UI and lifecycle on BridgeNet2 / `GetBridge`
+- `ReplicatedStorage.shared.modules` is still auto-loaded by server bootstrap as an intermediate compatibility step; do not add new server-authority code there
+- Shared modules should stay pure or client/server-neutral. Server-only logic belongs under `src/server`
 
 ## Troubleshooting
 

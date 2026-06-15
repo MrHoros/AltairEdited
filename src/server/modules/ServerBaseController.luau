@@ -1,8 +1,15 @@
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerScriptService = game:GetService("ServerScriptService")
 local Workspace = game:GetService("Workspace")
 
 local Base = require(ServerScriptService.server.classes.Base)
-local Logger = require(game:GetService("ReplicatedStorage").util.Logger)
+local Logger = require(ReplicatedStorage.util.Logger)
+local Promise = require(ReplicatedStorage.package.Promise)
+
+local PROFILE_LOAD_WARNING_SECONDS = 15
+local PROFILE_READY_RESULT = "profileReady"
+local PLAYER_LEFT_RESULT = "playerLeft"
 
 export type Default = {
 	index: number,
@@ -20,14 +27,108 @@ ServerBaseController.index = 1
 ServerBaseController.type = "controller"
 ServerBaseController.Bases = {}
 
-local function findFreeBase()
+local baseMutationTail = Promise.resolve()
+
+local function isPlayerActive(player: Player): boolean
+	return player.Parent == Players
+end
+
+local function chainBaseMutation(label: string, operation: () -> ...any): ()
+	baseMutationTail = baseMutationTail
+		:andThen(function()
+			return operation()
+		end)
+		:catch(function(err: unknown)
+			Logger.warn(`ServerBaseController[{label}]: {tostring(err)}`)
+		end)
+end
+
+local function waitForProfileOrLeave(serverData: any, player: Player): any
+	Promise.delay(PROFILE_LOAD_WARNING_SECONDS):andThen(function()
+		if isPlayerActive(player) and serverData.GetPlayerProfile and not serverData:GetPlayerProfile(player) then
+			Logger.warn(`ServerBaseController: still waiting for profile before assigning base to {player.Name}`)
+		end
+	end)
+
+	return Promise.race({
+		serverData:WaitForPlayerProfile(player):andThen(function()
+			return PROFILE_READY_RESULT
+		end),
+		Promise.fromEvent(Players.PlayerRemoving, function(leavingPlayer: Player): boolean
+			return leavingPlayer == player
+		end):andThen(function()
+			return PLAYER_LEFT_RESULT
+		end),
+	})
+end
+
+local function tryReserveAnyBase(player: Player): typeof(Base)?
 	for _, base in ServerBaseController.Bases do
-		if not base.Reserved and not base.Owner then
+		if base:TryReserve(player) then
 			return base
 		end
 	end
 
-	return nil
+	return
+end
+
+local function releasePlayerBase(player: Player): ()
+	local playerBase = ServerBaseController:GetPlayerBase(player)
+	if playerBase then
+		playerBase:UnClaim(player)
+		return
+	end
+
+	for _, base in ServerBaseController.Bases do
+		if base.Owner == player then
+			base:UnClaim(player)
+			return
+		end
+	end
+end
+
+local function claimPlayerBase(player: Player): ()
+	if not isPlayerActive(player) then
+		return
+	end
+
+	local reservedBase = tryReserveAnyBase(player)
+	if not reservedBase then
+		Logger.warn(`ServerBaseController: no free base found for {player.Name}`)
+		return
+	end
+
+	local claimedBase = reservedBase:Claim(player)
+	if not claimedBase then
+		Logger.warn(`ServerBaseController: failed to claim base for {player.Name}`)
+		reservedBase:UnClaim(player)
+	end
+end
+
+local function waitForProfileThenClaimBase(self: Default, player: Player): any
+	local serverData = self.path and self.path.controller and self.path.controller.ServerData
+	if not serverData or not serverData.WaitForPlayerProfile then
+		chainBaseMutation(`assign:{player.Name}`, function()
+			claimPlayerBase(player)
+		end)
+		return
+	end
+
+	return waitForProfileOrLeave(serverData, player):andThen(function(result: string)
+		if result == PLAYER_LEFT_RESULT then
+			return
+		end
+
+		if not isPlayerActive(player) then
+			return
+		end
+
+		chainBaseMutation(`assign:{player.Name}`, function()
+			claimPlayerBase(player)
+		end)
+	end):catch(function(err: unknown)
+		Logger.warn(`ServerBaseController: failed waiting for profile for {player.Name}: {tostring(err)}`)
+	end)
 end
 
 function ServerBaseController:Init(): ()
@@ -59,7 +160,7 @@ end
 function ServerBaseController:GetPlayerBase(player: Player): typeof(Base)?
 	local baseIndex = player:GetAttribute("BaseIndex")
 	if baseIndex == nil then
-		return nil
+		return
 	end
 
 	local numericIndex = tonumber(baseIndex)
@@ -73,49 +174,17 @@ function ServerBaseController:GetPlayerBase(player: Player): typeof(Base)?
 		end
 	end
 
-	return nil
+	return
 end
 
 function ServerBaseController:PlayerAdded(player: Player): ()
-	local freeBase = findFreeBase()
-	if not freeBase then
-		Logger.warn(`ServerBaseController: no free base found for {player.Name}`)
-		return
-	end
-
-	freeBase:Reserve(player)
-
-	local serverData = self.path and self.path.controller and self.path.controller.ServerData
-	if serverData and serverData.WaitForPlayerProfile then
-		local loaded = serverData:WaitForPlayerProfile(player):timeout(15, false):await()
-		if not loaded then
-			Logger.warn(`ServerBaseController: profile load timed out for {player.Name}; releasing reserved base`)
-			freeBase:UnClaim()
-			return
-		end
-	end
-
-	local claimedBase = freeBase:Claim(player)
-	if not claimedBase then
-		Logger.warn(`ServerBaseController: failed to claim base for {player.Name}`)
-		freeBase:UnClaim()
-		return
-	end
+	waitForProfileThenClaimBase(self, player)
 end
 
 function ServerBaseController:PlayerRemoving(player: Player): ()
-	local playerBase = self:GetPlayerBase(player)
-	if playerBase then
-		playerBase:UnClaim()
-		return
-	end
-
-	for _, base in self.Bases do
-		if base.Owner == player then
-			base:UnClaim()
-			return
-		end
-	end
+	chainBaseMutation(`release:{player.Name}`, function()
+		releasePlayerBase(player)
+	end)
 end
 
 return ServerBaseController

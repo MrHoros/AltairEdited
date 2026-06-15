@@ -558,90 +558,14 @@ runControllerBarrier(regularControllers, "Start", START_TIMEOUT_SECONDS)
 controllersFullyLoaded = true
 controllersReadyEvent:Fire()
 
-					end)
-				end
-			end
-		end)
-	end)
-
-	player.CharacterAppearanceLoaded:Connect(function(character: Model): ()
-		for _index: number, class: unknown in path.controller do
-			task.spawn(function(): ()
-				if class.CharacterAppearanceLoaded then
-					class:CharacterAppearanceLoaded(player, character)
-				end
-			end)
-		end
-
-		for _instance: Instance, classes: { unknown } in path.tag do
-			for _index: number, class: unknown in classes do
-				task.defer(function(): ()
-					if class.CharacterAppearanceLoaded then
-						class:CharacterAppearanceLoaded(player, character)
-					end
-				end)
-			end
-		end
-	end)
-end)
+for _index: number, player: Player in Players:GetPlayers() do
+	task.spawn(bootstrapPlayer, player)
+end
 
 RunService.Heartbeat:Connect(function(delta: number): ()
-	for _index: number, class: unknown in path.controller do
-		task.defer(function(): ()
-			if class.Physics then
-				class:Physics(delta)
-			end
-		end)
-	end
-
-	for _instance: Instance, classes: { unknown } in path.tag do
-		for _index: number, class: unknown in classes do
-			task.defer(function(): ()
-				if class.Physics then
-					class:Physics(delta)
-				end
-			end)
-		end
-	end
+	dispatchToRuntime("Physics", true, delta)
 end)
 
 RunService.PreSimulation:Connect(function(delta: number): ()
-	for _index: number, class: unknown in path.controller do
-		task.defer(function(): ()
-			if class.Stepped then
-				class:Stepped(delta)
-			end
-		end)
-	end
-
-	for _instance: Instance, classes: { unknown } in path.tag do
-		for _index: number, class: unknown in classes do
-			task.defer(function(): ()
-				if class.Stepped then
-					class:Stepped(delta)
-				end
-			end)
-		end
-	end
-end)
-
-RunService.PreRender:Connect(function(delta: number): ()
-	for _index: number, class: unknown in path.controller do
-		task.defer(function(): ()
-			if class.Render then
-				class:Render(delta)
-			end
-		end)
-	end
-
-	for _instance: Instance, classes: { unknown } in path.tag do
-		for _index: number, class: unknown in classes do
-			task.defer(function(): ()
-				if class.Render then
-					class:Render(delta)
-				end
-			end)
-		end
-	end
 	dispatchToRuntime("Stepped", true, delta)
 end)

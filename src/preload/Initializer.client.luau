@@ -7,6 +7,7 @@ local ReplicatedFirst = game:GetService("ReplicatedFirst")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local StarterGui = game:GetService("StarterGui")
 
+local BootstrapConfig = require(ReplicatedFirst:WaitForChild("BootstrapConfig"))
 local ClientData = require(ReplicatedStorage:WaitForChild("client"):WaitForChild("modules"):WaitForChild("ClientData"))
 local GetBridge = require(ReplicatedStorage.util.GetBridge)
 local SetCharacterControlsEnabled = require(ReplicatedStorage.util.SetCharacterControlsEnabled)
@@ -14,9 +15,17 @@ local SetCharacterControlsEnabled = require(ReplicatedStorage.util.SetCharacterC
 local LocalPlayer = Players.LocalPlayer
 
 local DATA_LOAD_TIMEOUT_SECONDS: number = 25
+local FALLBACK_SUBTEXT: string = "Loading controllers 0/20"
+local LOADING_SCREEN_ENABLED: boolean = BootstrapConfig.enableLoadingScreen ~= false
+local LOADING_TEXT_FRAMES: { string } = { "Loading", "Loading.", "Loading..", "Loading..." }
+local LOADING_TEXT_INTERVAL_SECONDS: number = 0.35
 local MAX_CORE_GUI_ATTEMPTS: number = 200
 local PRELOAD_BATCH_SIZE: number = 8
 local RETRY_DELAY_SECONDS: number = 0.05
+
+if LOADING_SCREEN_ENABLED then
+	ReplicatedFirst:RemoveDefaultLoadingScreen()
+end
 
 local function setCoreGuiEnabled(enabled: boolean): boolean
 	return xpcall(function(): ()
@@ -44,21 +53,62 @@ local function applyCoreGuiState(enabled: boolean): ()
 	end
 end
 
-local function getOrCloneLoadingGui(playerGui: PlayerGui): ScreenGui?
-	local existing: ScreenGui? = playerGui:FindFirstChild("LoadingUI") :: ScreenGui?
+local function getOrCloneLoadingScreen(playerGui: PlayerGui): ScreenGui?
+	if not LOADING_SCREEN_ENABLED then
+		return
+	end
+
+	local existing: ScreenGui? = playerGui:FindFirstChild("LoadingScreen") :: ScreenGui?
 	if existing then
 		return existing
 	end
 
-	local template: ScreenGui? = ReplicatedFirst:FindFirstChild("LoadingUI") :: ScreenGui?
+	local template: ScreenGui? = ReplicatedFirst:FindFirstChild("LoadingScreen") :: ScreenGui?
 	if not template then
 		return
 	end
 
 	local clone: ScreenGui = template:Clone()
+	clone.DisplayOrder = 10_000
+	clone.IgnoreGuiInset = true
+	clone.ResetOnSpawn = false
 	clone.Parent = playerGui
 
 	return clone
+end
+
+local function startLoadingTextAnimation(loadingScreen: ScreenGui?): ()
+	if not loadingScreen then
+		return
+	end
+
+	local mainFrame: Frame? = loadingScreen:FindFirstChild("MainFrame") :: Frame?
+	if not mainFrame or not mainFrame:IsA("Frame") then
+		return
+	end
+
+	local loadingTextLabel: TextLabel? = mainFrame:FindFirstChild("LoadingText") :: TextLabel?
+	local loadingSubTextLabel: TextLabel? = mainFrame:FindFirstChild("LoadingSubText") :: TextLabel?
+	if loadingSubTextLabel and loadingSubTextLabel:IsA("TextLabel") then
+		loadingSubTextLabel.Text = FALLBACK_SUBTEXT
+	end
+
+	if not loadingTextLabel or not loadingTextLabel:IsA("TextLabel") then
+		return
+	end
+
+	task.spawn(function(): ()
+		local frameIndex: number = 1
+		while loadingScreen.Parent do
+			loadingTextLabel.Text = LOADING_TEXT_FRAMES[frameIndex]
+			frameIndex += 1
+			if frameIndex > #LOADING_TEXT_FRAMES then
+				frameIndex = 1
+			end
+
+			task.wait(LOADING_TEXT_INTERVAL_SECONDS)
+		end
+	end)
 end
 
 local function preloadPlayerGuiImages(playerGui: PlayerGui): ()
@@ -95,9 +145,10 @@ local function waitForPlayerData(): ()
 end
 
 local playerGui: PlayerGui = LocalPlayer:WaitForChild("PlayerGui") :: PlayerGui
-local loadingGui: ScreenGui? = getOrCloneLoadingGui(playerGui)
-if loadingGui then
-	loadingGui.Enabled = true
+local loadingScreen: ScreenGui? = getOrCloneLoadingScreen(playerGui)
+if loadingScreen then
+	loadingScreen.Enabled = true
+	startLoadingTextAnimation(loadingScreen)
 end
 
 applyCoreGuiState(false)
@@ -108,9 +159,5 @@ waitForPlayerData()
 
 GetBridge("PlayerReady"):Fire()
 SetCharacterControlsEnabled(true)
-
-if loadingGui then
-	loadingGui.Enabled = false
-end
 
 applyCoreGuiState(true)

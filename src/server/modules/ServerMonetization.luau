@@ -28,6 +28,11 @@ export type ServerMonetization = {
 	PlayerAdded: (self: ServerMonetization, player: Player) -> (),
 	CheckGamePass: (self: ServerMonetization, player: Player, name: string) -> boolean,
 	CheckOffer: (self: ServerMonetization, player: Player, name: string) -> boolean,
+	ProcessDevProductReceipt: (
+		self: ServerMonetization,
+		player: Player,
+		receiptInfo: APIDictionaries.receiptInfo
+	) -> boolean,
 	ProceedGamePassPurchaseAsync: (
 		self: ServerMonetization,
 		player: Player,
@@ -70,17 +75,10 @@ local SUPPORT_NOTIFICATION_COLOR: Color3 = Color3.new(0.85, 0.5, 0.9)
 local GAMEPASS_OWNERSHIP_RETRY_COUNT: number = 3
 local GAMEPASS_OWNERSHIP_RETRY_DELAY_SECONDS: number = 1
 
-local GAMEPASS_ITEM_GRANTS: { [string]: string } = {}
-local BREAK_BARRIER_BASE_NUMBER_ATTR: string = "BreakBarrierBaseNumber"
-
-local grantGamePassItem: (player: Player, producer: any, passName: string) -> ()
-
 local function applyGamePassOwnership(player: Player, producer: any, passName: string, showNotification: boolean): ()
 	if producer.secureAddGamePass then
 		producer.secureAddGamePass(passName)
 	end
-
-	grantGamePassItem(player, producer, passName)
 
 	if showNotification then
 		Notify:Fire(Bridgenet2.Players({ player }), {
@@ -123,65 +121,6 @@ local function ownsGamePassWithRetry(player: Player, passName: string, passId: n
 	end
 
 	return false
-end
-
-grantGamePassItem = function(player: Player, producer: any, passName: string): ()
-	local itemId: string? = GAMEPASS_ITEM_GRANTS[passName]
-	if not itemId then
-		Logger.print(`ServerMonetization: no gamepass item grant for passName={passName} player={player.Name}`)
-
-		return
-	end
-
-	-- local itemConfig: any = ItemsConfig[itemId]
-	-- if not itemConfig then
-	-- 	Logger.warn(
-	-- 		`ServerMonetization: item config missing for itemId={itemId} passName={passName} player={player.Name}`
-	-- 	)
-
-	-- 	return
-	-- end
-
-	local inventory: any = producer.getState and producer:getState().inventory
-	local items: any = inventory and inventory.items
-	if items and items[itemId] then
-		Logger.print(
-			`ServerMonetization: inventory already has itemId={itemId} passName={passName} player={player.Name}`
-		)
-
-		return
-	end
-
-	-- if producer.secureAddItem then
-	-- 	local displayName: string = (itemConfig and itemConfig.displayName) or itemId
-	-- 	local rarity: string = (itemConfig and itemConfig.rarity) or "common"
-
-	-- 	producer.secureAddItem(itemId, {
-	-- 		id = itemId,
-	-- 		name = displayName,
-	-- 		description = "",
-	-- 		quantity = 1,
-	-- 		rarity = rarity,
-	-- 		equipped = false,
-	-- 	})
-	-- end
-
-	if producer.secureUnlockItem then
-		producer.secureUnlockItem(itemId)
-	end
-
-	task.spawn(function(): ()
-		Logger.print(
-			`ServerMonetization: creating item tool from passName={passName} itemId={itemId} player={player.Name}`
-		)
-		-- ItemServerUtil.CreateItemTool(player, itemId)
-	end)
-
-	-- Notify:Fire(Bridgenet2.Players({ player }), {
-	-- 	text = `Equipped {(itemConfig and itemConfig.displayName) or itemId}!`,
-	-- 	seconds = 3,
-	-- 	color = SUPPORT_NOTIFICATION_COLOR,
-	-- })
 end
 
 function ServerMonetization:ProceedGamePassPurchaseAsync(player: Player, id: number): Promise.TypedPromise<boolean>
@@ -258,11 +197,7 @@ function ServerMonetization:PromptGamePassByNameAsync(player: Player, name: stri
 			SecurePlayerAsync(player, self:ProceedGamePassPurchaseAsync(player, passId)):await()
 		if status then
 			local producer = ServerData:GetPlayerProducerAsync(player):expect()
-			if producer.secureAddGamePass then
-				producer.secureAddGamePass(name)
-			end
-
-			grantGamePassItem(player, producer, name)
+			applyGamePassOwnership(player, producer, name, false)
 		end
 		resolve(status)
 	end):catch(warn)
@@ -382,6 +317,90 @@ function ServerMonetization:CheckOffer(player: Player, name: string): boolean
 	return Conditions:CheckCondition(player, "offers", name)
 end
 
+function ServerMonetization:ProcessDevProductReceipt(
+	player: Player,
+	receiptInfo: APIDictionaries.receiptInfo
+): boolean
+	local productId: string = tostring(receiptInfo.ProductId)
+	local data = self.idIndexedMonetizationReference.products[productId]
+	if not data then
+		Logger.warn(`No idIndexed data for dev product (id: {productId})`)
+
+		return false
+	end
+
+	local config = MonetizationConfig.products[data.name]
+	if not config then
+		Logger.warn(
+			`No dev product found in config with name: {data.name}{data.dataName and ` and entry name: {data.dataName}` or ""}`
+		)
+
+		return false
+	end
+
+	local entryConfig = data.dataName
+			and config
+			and config.data
+			and config.data[data.dataName]
+			and config.data[data.dataName]
+		or nil
+
+	local execs = (entryConfig and (entryConfig.exec or entryConfig.execs)) or config.exec or config.execs
+	execs = execs and type(execs) ~= "table" and { execs } or execs or {}
+	for _index: number, execNameOrFunction: string | (...any) -> () in execs do
+		local exec = type(execNameOrFunction) == "string" and MonetizationExecs.execs[execNameOrFunction]
+			or type(execNameOrFunction) == "function" and execNameOrFunction
+		if not exec then
+			Logger.warn(`No exec found with name: {execNameOrFunction}`)
+
+			return false
+		end
+
+		local success: boolean, err: any = xpcall(function(): ()
+			exec(player, data, config)
+		end, debug.traceback)
+		if not success then
+			Logger.warn(`Dev product exec failed for product id {productId}: {tostring(err)}`)
+
+			return false
+		end
+	end
+
+	local offers = (entryConfig and (entryConfig.offer or entryConfig.offers)) or config.offer or config.offers
+	offers = offers and type(offers) == "string" and { offers } or offers or {}
+	if #offers > 0 then
+		local producer = ServerData:GetPlayerProducerAsync(player):expect()
+
+		for _index: number, offerName: string in offers do
+			producer.secureAddOffer(offerName)
+
+			local offerExec: (() -> ())? = MonetizationExecs.offers[offerName]
+			if offerExec then
+				local success: boolean, err: any = xpcall(offerExec, debug.traceback)
+				if not success then
+					Logger.warn(`Offer exec failed for offer {offerName}: {tostring(err)}`)
+
+					return false
+				end
+			end
+		end
+	end
+
+	Notify:Fire(Bridgenet2.Players({ player }), {
+		text = "Thanks for your support!",
+		seconds = 4,
+		color = SUPPORT_NOTIFICATION_COLOR,
+	})
+
+	if not ServerData:SavePlayerProfile(player) then
+		Logger.warn(
+			`ServerMonetization: failed to persist profile after dev product receipt player={player.Name} productId={productId}`
+		)
+	end
+
+	return true
+end
+
 function ServerMonetization:Start(): ()
 	MarketplaceService.ProcessReceipt = function(receiptInfo: APIDictionaries.receiptInfo): Enum.ProductPurchaseDecision
 		local player: Player = Players:GetPlayerByUserId(receiptInfo.PlayerId)
@@ -389,62 +408,18 @@ function ServerMonetization:Start(): ()
 			return Enum.ProductPurchaseDecision.NotProcessedYet
 		end
 
-		task.defer(function(): ()
-			local productId: string = tostring(receiptInfo.ProductId)
-			local data = self.idIndexedMonetizationReference.products[productId]
-			if not data then
-				Logger.warn(`No idIndexed data for dev product (id: {productId})`)
+		local success: boolean, wasProcessed: boolean = xpcall(function(): boolean
+			return self:ProcessDevProductReceipt(player, receiptInfo)
+		end, debug.traceback)
+		if success and wasProcessed then
+			return Enum.ProductPurchaseDecision.PurchaseGranted
+		end
 
-				return
-			end
+		if not success then
+			Logger.warn(`ProcessReceipt failed for product id {receiptInfo.ProductId}: {tostring(wasProcessed)}`)
+		end
 
-			local config = MonetizationConfig.products[data.name]
-			local entryConfig = data.dataName
-					and config
-					and config.data
-					and config.data[data.dataName]
-					and config.data[data.dataName]
-				or nil
-			if not config then
-				Logger.warn(
-					`No dev product found in config with name: {data.name}{data.dataName and ` and entry name: {data.dataName}` or ""}`
-				)
-
-				return
-			end
-
-			local execs = (entryConfig and (entryConfig.exec or entryConfig.execs)) or config.exec or config.execs
-			execs = execs and type(execs) ~= "table" and { execs } or execs or {}
-			for _index: number, execNameOrFunction: string | (...any) -> () in execs do
-				local exec = type(execNameOrFunction) == "string" and MonetizationExecs.execs[execNameOrFunction]
-					or type(execNameOrFunction) == "function" and execNameOrFunction
-				if not exec then
-					Logger.warn(`No exec found with name: {execNameOrFunction}`)
-					continue
-				end
-
-				exec(player, data, config)
-			end
-
-			local offers = (entryConfig and (entryConfig.offer or entryConfig.offers)) or config.offer or config.offers
-			offers = offers and type(offers) == "string" and { offers } or offers or {}
-			local producer = ServerData:GetPlayerProducerAsync(player):expect()
-
-			for _index: number, offerName: string in offers do
-				producer.secureAddOffer(offerName)
-
-				local offerExec: (() -> ())? = MonetizationExecs.offers[offerName]
-				offerExec = offerExec and offerExec()
-			end
-
-			Notify:Fire(Bridgenet2.Players({ player }), {
-				text = "Thanks for your support!",
-				seconds = 4,
-				color = SUPPORT_NOTIFICATION_COLOR,
-			})
-		end)
-
-		return Enum.ProductPurchaseDecision.PurchaseGranted
+		return Enum.ProductPurchaseDecision.NotProcessedYet
 	end
 end
 
@@ -458,13 +433,6 @@ function ServerMonetization:Init(): ()
 			local name: any = data.name
 			if typeof(name) ~= "string" then
 				return
-			end
-
-			if name == "BreakBarrier" then
-				local baseNumberAny: any = data.baseNumber
-				if type(baseNumberAny) == "number" then
-					player:SetAttribute(BREAK_BARRIER_BASE_NUMBER_ATTR, math.floor(baseNumberAny))
-				end
 			end
 
 			local productName: any = data.productName

@@ -58,8 +58,10 @@ export type Default = {
 	WaitForPlayerProfile: (self: Default, player: Player) -> Promise.TypedPromise<ServerPlayerProfile>,
 	GetPlayerProducerAsync: (self: Default, player: Player) -> Promise.TypedPromise<ProfileTypes.PlayerProducer>,
 	GetGameProducerAsync: (self: Default) -> Promise.TypedPromise<gameProfile.Producer>,
+	SavePlayerProfile: (self: Default, player: Player) -> boolean,
 	PlayerAdded: (self: Default, player: Player) -> (),
 	PlayerRemoving: (self: Default, player: Player) -> (),
+	HandleShutdown: (self: Default) -> (),
 	Init: (self: Default) -> (),
 }
 
@@ -77,6 +79,7 @@ local PlayerReady = GetBridge("PlayerReady")
 
 local DATASTORE_KEY: string = GameConfig.data.datastoreKey
 local PLAYTIME_TICK_SECONDS: number = 10
+local SHUTDOWN_RELEASE_GRACE_SECONDS: number = 8
 
 local ReplicateStore = Instance.new("RemoteEvent")
 ReplicateStore.Name = "ReplicateStore"
@@ -161,7 +164,14 @@ local function buildSaveData(profile: ServerPlayerProfile): { [string]: any }
 end
 
 local PROFILE_MODULES = getProfileModules()
+
+ProfileStore.SetConstant("AUTO_SAVE_PERIOD", 300)
+
 local PLAYER_STORE = ProfileStore.New(DATASTORE_KEY, buildDefaultTemplate(PROFILE_MODULES))
+
+local function syncProfileStoreData(profile: ServerPlayerProfile): ()
+	profile.profileStore.Data = buildSaveData(profile)
+end
 
 local function clearPlayerRuntimeState(player: Player): ()
 	loadingProfiles[player] = nil
@@ -206,7 +216,11 @@ function ServerData:GetPlayerProfile(player: Player): ServerPlayerProfile?
 end
 
 function ServerData:WaitForPlayerProfile(player: Player): Promise.TypedPromise<ServerPlayerProfile>
-	return Promise.new(function(resolve: (ServerPlayerProfile) -> ()): ()
+	return Promise.new(function(
+		resolve: (ServerPlayerProfile) -> (),
+		_reject: (unknown) -> (),
+		onCancel: (() -> ()) -> ()
+	): ()
 		local profile = self:GetPlayerProfile(player)
 		local connection
 
@@ -223,6 +237,12 @@ function ServerData:WaitForPlayerProfile(player: Player): Promise.TypedPromise<S
 
 			connection:Disconnect()
 			resolve(data)
+		end)
+
+		onCancel(function(): ()
+			if connection then
+				connection:Disconnect()
+			end
 		end)
 	end)
 end
@@ -244,6 +264,18 @@ function ServerData:GetGameProducerAsync(): Promise.TypedPromise<gameProfile.Pro
 
 		resolve(self.gameProducer)
 	end)
+end
+
+function ServerData:SavePlayerProfile(player: Player): boolean
+	local profile: ServerPlayerProfile? = self:GetPlayerProfile(player)
+	if not profile or not profile.profileStore:IsActive() then
+		return false
+	end
+
+	syncProfileStoreData(profile)
+	profile.profileStore:Save()
+
+	return true
 end
 
 function ServerData:PlayerAdded(player: Player): ()
@@ -288,10 +320,10 @@ function ServerData:PlayerAdded(player: Player): ()
 		end
 	end)
 
-	profileStore.OnLastSave:Connect(function(_reason: string): ()
-		local profile: ServerPlayerProfile? = self.profiles[player]
-		if profile then
-			profileStore.Data = buildSaveData(profile)
+	profileStore.OnSave:Connect(function(): ()
+		local activeProfile: ServerPlayerProfile? = self.profiles[player]
+		if activeProfile and activeProfile.profileStore:IsActive() then
+			syncProfileStoreData(activeProfile)
 		end
 	end)
 
@@ -304,9 +336,6 @@ function ServerData:PlayerAdded(player: Player): ()
 	end
 
 	local data = profileStore.Data
-	if data.player and data.player.tutorial then
-		data = {}
-	end
 
 	local producers = {}
 	local playerData = data.player or {}
@@ -387,10 +416,47 @@ function ServerData:PlayerRemoving(player: Player): ()
 	end
 
 	endingSessions[player] = true
-	profile.profileStore.Data = buildSaveData(profile)
+	syncProfileStoreData(profile)
 	profile.profileStore:EndSession()
 	self.profiles[player] = nil
 	clearPlayerRuntimeState(player)
+end
+
+function ServerData:HandleShutdown(): ()
+	if self._shuttingDown == true then
+		return
+	end
+
+	self._shuttingDown = true
+
+	local onlinePlayers: { Player } = Players:GetPlayers()
+	if #onlinePlayers == 0 then
+		return
+	end
+
+	Logger.warn(`BindToClose: releasing {#onlinePlayers} online profile(s) before shutdown`)
+
+	for _, player: Player in onlinePlayers do
+		self:PlayerRemoving(player)
+	end
+
+	local shutdownStartedAt: number = os.clock()
+	while os.clock() - shutdownStartedAt < SHUTDOWN_RELEASE_GRACE_SECONDS do
+		local hasPendingProfiles: boolean = false
+
+		for _, player: Player in Players:GetPlayers() do
+			if self.profiles[player] or loadingProfiles[player] then
+				hasPendingProfiles = true
+				break
+			end
+		end
+
+		if not hasPendingProfiles then
+			break
+		end
+
+		task.wait(0.1)
+	end
 end
 
 function ServerData:Init(): ()
@@ -409,8 +475,14 @@ function ServerData:Init(): ()
 			task.wait(PLAYTIME_TICK_SECONDS)
 
 			for _player: Player, profile: ServerPlayerProfile in self.profiles do
-				if profile and profile.producer and (profile.producer :: any).secureAddTimePlayedSeconds then
-					(profile.producer :: any).secureAddTimePlayedSeconds(PLAYTIME_TICK_SECONDS)
+				if profile and profile.producer then
+					if (profile.producer :: any).secureAddTimePlayedSeconds then
+						(profile.producer :: any).secureAddTimePlayedSeconds(PLAYTIME_TICK_SECONDS)
+					end
+
+					if profile.profileStore:IsActive() then
+						syncProfileStoreData(profile)
+					end
 				end
 			end
 		end
@@ -487,12 +559,8 @@ function ServerData:Init(): ()
 
 	if not self._shutdownBound then
 		self._shutdownBound = true
-		game:BindToClose(function()
-			self._shuttingDown = true
-
-			for _, player: Player in Players:GetPlayers() do
-				self:PlayerRemoving(player)
-			end
+		game:BindToClose(function(): ()
+			self:HandleShutdown()
 		end)
 	end
 end

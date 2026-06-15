@@ -1,5 +1,5 @@
 [package]
-name = "ncxyzero/altair"
+name = "khcol/altair-edited-starter"
 version = "2.0.0"
 registry = "https://github.com/UpliftGames/wally-index"
 realm = "shared"
@@ -10,6 +10,7 @@ shared-packages = "game.ReplicatedStorage.package"
 [dependencies]
 BezierTweens = "max-bacon/bezier-tweens@1.2.1"
 Bridgenet2 = "ncxyzero/bridgenet2-fork@1.1.5"
+ByteNetMax = "elitriare/bytenet-max@0.2.7"
 CameraShaker = "brittonfischer/camerashaker@0.1.0"
 Cmdr = "evaera/cmdr@1.12.0"
 Fastcast = "solarhorizon/fastcast@13.2.1"

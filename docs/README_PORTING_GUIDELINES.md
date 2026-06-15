@@ -1,6 +1,7 @@
 # Porting Guidelines
 
-Use this checklist when moving old CoreScripts/local systems into this Altair-derived architecture.
+Use this checklist when moving old CoreScripts or legacy systems into **this starter repository**.
+Do not use this document as the primary onboarding path for a brand-new game.
 
 ## 1. Port behavior, not folder shape
 

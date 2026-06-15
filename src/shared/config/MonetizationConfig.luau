@@ -40,37 +40,8 @@ export type MonetizationConfig = {
 }
 
 local MonetizationConfig: MonetizationConfig = {
-	passes = {
-		--
-		Test = 1234,
-	},
-	products = {
-		Test1 = 1234,
-
-		Test2 = {
-			id = 12345,
-		},
-
-		Test3 = {
-			data = {
-				Variant1 = {
-					id = 123456,
-					money = 150,
-				},
-				Variant2 = {
-					id = 1234567,
-					money = 350,
-					bonus = true,
-				},
-			},
-			execs = {
-				"Exec1",
-				"NonExistantExecTest",
-				function() end,
-			},
-			offer = "Offer1",
-		},
-	},
+	passes = {},
+	products = {},
 }
 
 return table.freeze(MonetizationConfig)
