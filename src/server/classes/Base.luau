@@ -7,6 +7,7 @@ Base.__index = Base
 
 local BASES_FOLDER_NAME = "Bases"
 local BASE_COMPONENTS_PATH = { "shared", "model", "BaseComponents", "PlayerBase" }
+local CHARACTER_WAIT_TIMEOUT_SECONDS = 10
 local REMOVED_STARTER_CHILDREN = {
 	GeneratedFloors = true,
 	LocalButtons = true,
@@ -73,6 +74,29 @@ local function setModelPivot(model: Model, initPart: BasePart): ()
 	model:PivotTo(initPart.CFrame)
 end
 
+local function waitForCharacter(player: Player): Model?
+	local character: Model? = player.Character
+	if character then
+		return character
+	end
+
+	local connection: RBXScriptConnection?
+	connection = player.CharacterAdded:Connect(function(newCharacter: Model): ()
+		character = newCharacter
+	end)
+
+	local startedAt: number = os.clock()
+	while not character and player.Parent == Players and os.clock() - startedAt < CHARACTER_WAIT_TIMEOUT_SECONDS do
+		task.wait(0.1)
+	end
+
+	if connection then
+		connection:Disconnect()
+	end
+
+	return character
+end
+
 function Base.new(initPart: BasePart)
 	local self = setmetatable({}, Base)
 
@@ -113,7 +137,11 @@ function Base:TeleportToBase(): ()
 		return
 	end
 
-	local character = self.Owner.Character or self.Owner.CharacterAdded:Wait()
+	local character = waitForCharacter(self.Owner)
+	if not character then
+		return
+	end
+
 	local humanoidRootPart = character:FindFirstChild("HumanoidRootPart")
 	if not humanoidRootPart or not humanoidRootPart:IsA("BasePart") then
 		return

@@ -101,6 +101,8 @@ local function getPlayerKey(userId: number): string
 	return GameConfig.data.playerKeyPattern:format(userId)
 end
 
+local PROFILE_MODULES = getProfileModules()
+
 local function buildDefaultTemplate(profileModules: { [string]: any }): { [string]: any }
 	local defaultTemplate = {}
 
@@ -128,7 +130,7 @@ local function buildSaveData(profile: ServerPlayerProfile): { [string]: any }
 	local saveableData = {}
 	local exceptions = {}
 
-	for key: string, module in getProfileModules() do
+	for key: string, module in PROFILE_MODULES do
 		if module.SAVE_EXCEPTIONS then
 			exceptions[key] = module.SAVE_EXCEPTIONS
 		end
@@ -162,8 +164,6 @@ local function buildSaveData(profile: ServerPlayerProfile): { [string]: any }
 
 	return saveableData
 end
-
-local PROFILE_MODULES = getProfileModules()
 
 ProfileStore.SetConstant("AUTO_SAVE_PERIOD", 300)
 
@@ -523,9 +523,15 @@ function ServerData:Init(): ()
 			return
 		end
 
-		local isSecureAction: number? = data.name:find("^secure")
+		local actionNameAny: any = data.name
+		local actionName: string? = type(actionNameAny) == "string" and actionNameAny or nil
+		if not actionName then
+			return
+		end
+
+		local isSecureAction: number? = actionName:find("^secure")
 		if isSecureAction then
-			Logger.warn("Player tried to replicate secure reflex action", data.name)
+			Logger.warn("Player tried to replicate secure reflex action", actionName)
 
 			return
 		end
@@ -535,10 +541,17 @@ function ServerData:Init(): ()
 			return
 		end
 
-		profile.nextActionIsReplicated = true
-		do
-			(profile.producer :: any)[data.name](unpack(data.arguments))
+		local action: any = (profile.producer :: any)[actionName]
+		if type(action) ~= "function" then
+			Logger.warn("Player tried to replicate unknown reflex action", actionName)
+
+			return
 		end
+
+		local arguments: { any } = if type(data.arguments) == "table" then data.arguments else {}
+
+		profile.nextActionIsReplicated = true
+		action(unpack(arguments))
 	end)
 
 	ReplicateGameStore.OnServerEvent:Connect(function(_player: Player, data: { name: string, [string]: any }): ()
@@ -546,15 +559,30 @@ function ServerData:Init(): ()
 			return
 		end
 
-		local isSecureAction: number? = data.name:find("^secure")
+		local actionNameAny: any = data.name
+		local actionName: string? = type(actionNameAny) == "string" and actionNameAny or nil
+		if not actionName then
+			return
+		end
+
+		local isSecureAction: number? = actionName:find("^secure")
 		if isSecureAction then
-			Logger.warn("Player tried to replicate secure reflex action", data.name)
+			Logger.warn("Player tried to replicate secure reflex action", actionName)
 
 			return
 		end
 
+		local action: any = self.gameProducer[actionName]
+		if type(action) ~= "function" then
+			Logger.warn("Player tried to replicate unknown game reflex action", actionName)
+
+			return
+		end
+
+		local arguments: { any } = if type(data.arguments) == "table" then data.arguments else {}
+
 		nextActionIsReplicated = true
-		self.gameProducer[data.name](unpack(data.arguments))
+		action(unpack(arguments))
 	end)
 
 	if not self._shutdownBound then

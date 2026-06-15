@@ -62,6 +62,8 @@ local ClientData: Default = {
 
 local playerDataQueue: number = 0
 local gameDataQueue: number = 0
+local pendingPlayerReplicationEvents: { { name: string, arguments: { any } } } = {}
+local pendingGameReplicationEvents: { { name: string, arguments: { any } } } = {}
 
 local function waitForSignal<T>(signal: Signal.Signal<T>, getValue: () -> T?): Promise.TypedPromise<T>
 	return Promise.new(function(
@@ -99,6 +101,48 @@ local function CreateClientProducer(data: any): Reflex.Producer<any, any>
 	local producer: Reflex.Producer<any, any> = Reflex.createProducer(data, {})
 
 	return producer
+end
+
+local function applyPlayerReplicationEvent(self: Default, data: { name: string, arguments: { any } }): ()
+	local actionNameAny: any = data.name
+	local actionName: string? = type(actionNameAny) == "string" and actionNameAny or nil
+	if not actionName then
+		return
+	end
+
+	local action: any = self.playerProducer[actionName]
+	if type(action) ~= "function" then
+		Logger.warn("Unknown action:", actionName)
+
+		return
+	end
+
+	local arguments: { any } = if type(data.arguments) == "table" then data.arguments else {}
+
+	playerDataQueue += 1
+
+	action(unpack(arguments))
+end
+
+local function applyGameReplicationEvent(self: Default, data: { name: string, arguments: { any } }): ()
+	local actionNameAny: any = data.name
+	local actionName: string? = type(actionNameAny) == "string" and actionNameAny or nil
+	if not actionName then
+		return
+	end
+
+	local action: any = self.gameProducer[actionName]
+	if type(action) ~= "function" then
+		Logger.warn("Unknown game action:", actionName)
+
+		return
+	end
+
+	local arguments: { any } = if type(data.arguments) == "table" then data.arguments else {}
+
+	gameDataQueue += 1
+
+	action(unpack(arguments))
 end
 
 function ClientData:GetPlayerProducerAsync(): Promise.TypedPromise<ProfileTypes.PlayerProducer>
@@ -176,6 +220,12 @@ function ClientData:Init(): ()
 
 		self.playerProducer:applyMiddleware(replicateMiddleware)
 		self.isPlayerDataLoaded = true
+
+		for _, data: { name: string, arguments: { any } } in pendingPlayerReplicationEvents do
+			applyPlayerReplicationEvent(self, data)
+		end
+
+		table.clear(pendingPlayerReplicationEvents)
 		self.playerDataLoadedSignal:Fire()
 
 		return
@@ -210,6 +260,12 @@ function ClientData:Init(): ()
 		self.gameProducer = gameProfile.CreateProducer(gameData)
 		self.gameProducer:applyMiddleware(replicateMiddleware)
 		self.isGameDataLoaded = true
+
+		for _, data: { name: string, arguments: { any } } in pendingGameReplicationEvents do
+			applyGameReplicationEvent(self, data)
+		end
+
+		table.clear(pendingGameReplicationEvents)
 		self.gameDataLoadedSignal:Fire()
 
 		return
@@ -222,25 +278,11 @@ function ClientData:Init(): ()
 			end
 
 			if not self.isPlayerDataLoaded then
+				table.insert(pendingPlayerReplicationEvents, data)
 				return
 			end
 
-			local actionNameAny: any = data.name
-			local actionName: string? = type(actionNameAny) == "string" and actionNameAny or nil
-			if not actionName then
-				return
-			end
-
-			local action: any = self.playerProducer[actionName]
-			if type(action) ~= "function" then
-				Logger.warn("Unknown action:", actionName)
-
-				return
-			end
-
-			playerDataQueue += 1
-
-			action(unpack(data.arguments))
+			applyPlayerReplicationEvent(self, data)
 		end)
 
 	ReplicatedStorage:WaitForChild("ReplicateGameStore").OnClientEvent:Connect(function(data: { [string]: any }): ()
@@ -249,29 +291,17 @@ function ClientData:Init(): ()
 		end
 
 		if not self.isGameDataLoaded then
+			table.insert(pendingGameReplicationEvents, data :: any)
 			return
 		end
 
-		local actionNameAny: any = data.name
-		local actionName: string? = type(actionNameAny) == "string" and actionNameAny or nil
-		if not actionName then
-			return
-		end
-
-		local action: any = self.gameProducer[actionName]
-		if type(action) ~= "function" then
-			Logger.warn("Unknown game action:", actionName)
-
-			return
-		end
-
-		gameDataQueue += 1
-
-		action(unpack(data.arguments))
+		applyGameReplicationEvent(self, data :: any)
 	end)
 
-	loadPlayerData()
-	loadGameData()
+	Promise.all({
+		Promise.defer(loadPlayerData),
+		Promise.defer(loadGameData),
+	}):expect()
 end
 
 return ClientData

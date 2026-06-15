@@ -64,7 +64,7 @@ local gameConfig: GameConfig = {
 		resetButtonDisabled = false,
 	},
 	data = {
-		datastoreKey = "DEV",
+		datastoreKey = "PlayerData_V1",
 		playerKeyPattern = "%d",
 		playerProfileInvokeTimeout = 30,
 	},

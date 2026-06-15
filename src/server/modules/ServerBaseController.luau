@@ -10,6 +10,7 @@ local Promise = require(ReplicatedStorage.package.Promise)
 local PROFILE_LOAD_WARNING_SECONDS = 15
 local PROFILE_READY_RESULT = "profileReady"
 local PLAYER_LEFT_RESULT = "playerLeft"
+local NO_FREE_BASE_MESSAGE = "No free base slot is available on this server. Please rejoin another server."
 
 export type Default = {
 	index: number,
@@ -95,6 +96,7 @@ local function claimPlayerBase(player: Player): ()
 	local reservedBase = tryReserveAnyBase(player)
 	if not reservedBase then
 		Logger.warn(`ServerBaseController: no free base found for {player.Name}`)
+		player:Kick(NO_FREE_BASE_MESSAGE)
 		return
 	end
 

@@ -50,6 +50,21 @@ local clientBootstrapReady: boolean = false
 local loadingScreenAttributes: { [string]: any } = {}
 local loadingScreenPhase: string = "Initializing"
 
+local function removeTagClass(instance: Instance, tag: string, class: unknown, classes: { unknown }): ()
+	local classIndex: number? = table.find(classes, class)
+	if classIndex then
+		table.remove(classes, classIndex)
+	end
+
+	if tagInstances[instance] then
+		tagInstances[instance][tag] = nil
+
+		if next(tagInstances[instance]) == nil then
+			tagInstances[instance] = nil
+		end
+	end
+end
+
 local function getVisibleTotalControllerCount(): number
 	return if totalControllerCount > 0 then totalControllerCount else DEFAULT_LOADING_CONTROLLER_TOTAL
 end
@@ -376,7 +391,7 @@ local function InitTag(required: unknown): ()
 	local function removeInstance(instance: Instance): ()
 		local class: unknown = tagInstances[instance] and tagInstances[instance][tag]
 
-		table.remove(required.tagclasses, table.find(required.tagclasses, class))
+		removeTagClass(instance, tag, class, required.tagclasses)
 
 		if required.tagclass == class then
 			required.tagclass = select(2, next(required.tagclasses))
@@ -389,6 +404,10 @@ local function InitTag(required: unknown): ()
 
 		if path.tag[instance] then
 			path.tag[instance][tag] = nil
+
+			if next(path.tag[instance]) == nil then
+				path.tag[instance] = nil
+			end
 		end
 	end
 
@@ -494,7 +513,7 @@ local function InitLocalTag(required: unknown): ()
 	local function removeInstance(instance: Instance): ()
 		local class: unknown = tagInstances[instance] and tagInstances[instance][tag]
 
-		table.remove(required.tagclasses, table.find(required.tagclasses, class))
+		removeTagClass(instance, tag, class, required.tagclasses)
 
 		if required.tagclass == class then
 			required.tagclass = select(2, next(required.tagclasses))
@@ -805,7 +824,7 @@ end)
 LocalPlayer.CharacterAppearanceLoaded:Connect(function(character: Model): ()
 	for _index: number, class: unknown in path.controller do
 		task.spawn(function(): ()
-			if class.CharacterAdded then
+			if class.CharacterAppearanceLoaded then
 				class:CharacterAppearanceLoaded(character)
 			end
 		end)
@@ -814,7 +833,7 @@ LocalPlayer.CharacterAppearanceLoaded:Connect(function(character: Model): ()
 	for _instance: Instance, classes: { unknown } in path.tag do
 		for _index: number, class: unknown in classes do
 			task.defer(function(): ()
-				if class.CharacterAdded then
+				if class.CharacterAppearanceLoaded then
 					class:CharacterAppearanceLoaded(character)
 				end
 			end)
@@ -823,7 +842,7 @@ LocalPlayer.CharacterAppearanceLoaded:Connect(function(character: Model): ()
 
 	for _instance: Instance, class: unknown in path.local_tag do
 		task.defer(function(): ()
-			if class and class.CharacterAdded then
+			if class and class.CharacterAppearanceLoaded then
 				class:CharacterAppearanceLoaded(character)
 			end
 		end)
