@@ -19,8 +19,12 @@ sharedFolder:WaitForChild("modules")
 sharedFolder:WaitForChild("model")
 
 local LOADING_SCREEN_NAME: string = "LoadingScreen"
-local LOADING_SCREEN_SUBTEXT_FORMAT: string = "Loading controllers %d/%d"
+local LOADING_SCREEN_INIT_FORMAT: string = "Initializing controllers %d/%d"
+local LOADING_SCREEN_START_FORMAT: string = "Starting systems %d/%d"
 local DEFAULT_LOADING_CONTROLLER_TOTAL: number = 20
+local LOADING_ATTRIBUTE_CLIENT_INIT_READY: string = "ClientInitReady"
+local LOADING_ATTRIBUTE_CLIENT_START_READY: string = "ClientStartReady"
+local LOADING_ATTRIBUTE_PHASE: string = "LoadingPhase"
 
 local path = {}
 path.controller = {}
@@ -36,13 +40,56 @@ local loadFirst = {}
 local loadFirstEntries = {}
 local load = {}
 local loadedControllerCount: number = 0
+local startedControllerCount: number = 0
 local totalControllerCount: number = 0
 local loadingScreenGui: ScreenGui? = nil
-local loadingScreenSubText: TextLabel? = nil
+local loadingScreenBar: Frame? = nil
+local loadingScreenLoadedPercent: TextLabel? = nil
+local loadingScreenText: TextLabel? = nil
 local clientBootstrapReady: boolean = false
+local loadingScreenAttributes: { [string]: any } = {}
+local loadingScreenPhase: string = "Initializing"
 
 local function getVisibleTotalControllerCount(): number
 	return if totalControllerCount > 0 then totalControllerCount else DEFAULT_LOADING_CONTROLLER_TOTAL
+end
+
+local function getLoadingScreenGui(): ScreenGui?
+	if loadingScreenGui and loadingScreenGui.Parent then
+		return loadingScreenGui
+	end
+
+	local playerGui: PlayerGui? = LocalPlayer:FindFirstChild("PlayerGui") :: PlayerGui?
+	if not playerGui then
+		return
+	end
+
+	local gui: ScreenGui? = playerGui:FindFirstChild(LOADING_SCREEN_NAME) :: ScreenGui?
+	if gui and gui:IsA("ScreenGui") then
+		return gui
+	end
+
+	return
+end
+
+local function setLoadingScreenAttribute(attributeName: string, value: any): ()
+	loadingScreenAttributes[attributeName] = value
+
+	local gui: ScreenGui? = getLoadingScreenGui()
+	if gui then
+		gui:SetAttribute(attributeName, value)
+	end
+end
+
+local function applyLoadingScreenAttributes(): ()
+	local gui: ScreenGui? = getLoadingScreenGui()
+	if not gui then
+		return
+	end
+
+	for attributeName: string, value: any in loadingScreenAttributes do
+		gui:SetAttribute(attributeName, value)
+	end
 end
 
 local function publishLoadingScreenProgress(isReady: boolean?): ()
@@ -50,15 +97,33 @@ local function publishLoadingScreenProgress(isReady: boolean?): ()
 		clientBootstrapReady = true
 	end
 
-	if loadingScreenSubText then
-		loadingScreenSubText.Text =
-			string.format(LOADING_SCREEN_SUBTEXT_FORMAT, loadedControllerCount, getVisibleTotalControllerCount())
+	local total: number = getVisibleTotalControllerCount()
+	local progress: number = if total > 0
+		then (loadedControllerCount + startedControllerCount) / (total * 2)
+		else 0
+	progress = math.clamp(progress, 0, 1)
+
+	if isReady == true then
+		progress = 1
 	end
 
-	if isReady == true and loadingScreenGui then
-		loadingScreenGui:Destroy()
-		loadingScreenGui = nil
-		loadingScreenSubText = nil
+	if loadingScreenBar and loadingScreenBar.Parent then
+		loadingScreenBar.Size = UDim2.fromScale(progress, 1)
+		loadingScreenBar.Visible = progress > 0
+	end
+
+	if loadingScreenLoadedPercent and loadingScreenLoadedPercent.Parent then
+		loadingScreenLoadedPercent.Text = `{math.floor(progress * 100)}%`
+	end
+
+	if loadingScreenText and loadingScreenText.Parent then
+		if isReady == true then
+			loadingScreenText.Text = "Ready"
+		elseif loadingScreenPhase == "Starting" then
+			loadingScreenText.Text = string.format(LOADING_SCREEN_START_FORMAT, startedControllerCount, total)
+		else
+			loadingScreenText.Text = string.format(LOADING_SCREEN_INIT_FORMAT, loadedControllerCount, total)
+		end
 	end
 end
 
@@ -68,6 +133,15 @@ local function markControllerLoaded(): ()
 	end
 
 	loadedControllerCount += 1
+	publishLoadingScreenProgress()
+end
+
+local function markControllerStarted(): ()
+	if startedControllerCount >= totalControllerCount then
+		return
+	end
+
+	startedControllerCount += 1
 	publishLoadingScreenProgress()
 end
 
@@ -85,18 +159,36 @@ task.spawn(function(): ()
 	end
 
 	loadingScreenGui = gui
+	applyLoadingScreenAttributes()
 
-	local mainFrame: Frame? = gui:FindFirstChild("MainFrame") :: Frame?
-	if not mainFrame or not mainFrame:IsA("Frame") then
+	local core: CanvasGroup? = gui:FindFirstChild("Core") :: CanvasGroup?
+	if not core or not core:IsA("CanvasGroup") then
 		return
 	end
 
-	local subText: TextLabel? = mainFrame:FindFirstChild("LoadingSubText") :: TextLabel?
-	if not subText or not subText:IsA("TextLabel") then
+	local loadingText: TextLabel? = core:FindFirstChild("LoadingNow") :: TextLabel?
+	if not loadingText or not loadingText:IsA("TextLabel") then
 		return
 	end
 
-	loadingScreenSubText = subText
+	local progressFrame: Frame? = core:FindFirstChild("Progress") :: Frame?
+	if not progressFrame or not progressFrame:IsA("Frame") then
+		return
+	end
+
+	local progressBar: Frame? = progressFrame:FindFirstChild("Bar") :: Frame?
+	if not progressBar or not progressBar:IsA("Frame") then
+		return
+	end
+
+	local loadedPercent: TextLabel? = progressFrame:FindFirstChild("LoadedPercent") :: TextLabel?
+	if not loadedPercent or not loadedPercent:IsA("TextLabel") then
+		return
+	end
+
+	loadingScreenBar = progressBar
+	loadingScreenLoadedPercent = loadedPercent
+	loadingScreenText = loadingText
 	publishLoadingScreenProgress(clientBootstrapReady)
 end)
 
@@ -184,6 +276,7 @@ for index: number = 1, #loadFirstEntries do
 end
 
 totalControllerCount = #loadFirst + #load
+setLoadingScreenAttribute(LOADING_ATTRIBUTE_PHASE, loadingScreenPhase)
 publishLoadingScreenProgress(false)
 
 local function InitController(required: unknown): ()
@@ -206,20 +299,21 @@ end
 local function InitControllerAsync(required: unknown, context: string): Promise.Promise
 	local regularDelaySeconds: number = 5
 	local delay: number = context == "regular" and regularDelaySeconds or 2
-	return Promise.race({
-		Promise.delay(delay):andThen(function(): ()
-			Logger.warn(
-				`Initialization of {context} controller {required.type or "unknown"} ({required.name or "unknown"}) exceeded {delay}s, continuing to next`
-			)
-		end),
-		Promise.new(function(resolve: () -> ()): ()
-			task.spawn(function(): ()
-				InitController(required)
 
-				resolve()
-			end)
-		end),
-	})
+	return Promise.new(function(resolve: () -> ()): ()
+		local warningPromise = Promise.delay(delay):andThen(function(): ()
+			Logger.warn(
+				`Initialization of {context} controller {required.type or "unknown"} `
+					.. `({required.name or "unknown"}) exceeded {delay}s`
+			)
+		end)
+
+		task.spawn(function(): ()
+			InitController(required)
+			warningPromise:cancel()
+			resolve()
+		end)
+	end)
 end
 
 local function StartController(required: unknown): ()
@@ -465,6 +559,11 @@ for _index: number, required: unknown in load do
 	markControllerLoaded()
 end
 
+setLoadingScreenAttribute(LOADING_ATTRIBUTE_CLIENT_INIT_READY, true)
+loadingScreenPhase = "Starting"
+setLoadingScreenAttribute(LOADING_ATTRIBUTE_PHASE, loadingScreenPhase)
+publishLoadingScreenProgress(false)
+
 for _index: number, required: unknown in moduleTags do
 	task.spawn(InitTag, required)
 end
@@ -484,6 +583,8 @@ for index: number = 1, #loadFirst do
 	if not success then
 		Logger.warn(`Failed to start priority controller of type {required.type or "unknown"}: {err}`)
 	end
+
+	markControllerStarted()
 end
 
 for _index: number, required: unknown in load do
@@ -496,8 +597,11 @@ for _index: number, required: unknown in load do
 	if not success then
 		Logger.warn(`Failed to start controller {required.type or "unknown"}: {err}`)
 	end
+
+	markControllerStarted()
 end
 
+setLoadingScreenAttribute(LOADING_ATTRIBUTE_CLIENT_START_READY, true)
 publishLoadingScreenProgress(true)
 
 Players.PlayerRemoving:Connect(function(player: Player): ()

@@ -63,6 +63,38 @@ local ClientData: Default = {
 local playerDataQueue: number = 0
 local gameDataQueue: number = 0
 
+local function waitForSignal<T>(signal: Signal.Signal<T>, getValue: () -> T?): Promise.TypedPromise<T>
+	return Promise.new(function(
+		resolve: (T) -> (),
+		_reject: (unknown) -> (),
+		onCancel: (() -> ()) -> ()
+	): ()
+		local value: T? = getValue()
+		if value then
+			resolve(value)
+
+			return
+		end
+
+		local connection
+		connection = signal:Connect(function(): ()
+			local newValue: T? = getValue()
+			if not newValue then
+				return
+			end
+
+			connection:Disconnect()
+			resolve(newValue)
+		end)
+
+		onCancel(function(): ()
+			if connection then
+				connection:Disconnect()
+			end
+		end)
+	end)
+end
+
 local function CreateClientProducer(data: any): Reflex.Producer<any, any>
 	local producer: Reflex.Producer<any, any> = Reflex.createProducer(data, {})
 
@@ -70,38 +102,28 @@ local function CreateClientProducer(data: any): Reflex.Producer<any, any>
 end
 
 function ClientData:GetPlayerProducerAsync(): Promise.TypedPromise<ProfileTypes.PlayerProducer>
-	return Promise.new(function(resolve: (ProfileTypes.PlayerProducer) -> ()): ()
-		if not self.isPlayerDataLoaded then
-			self.playerDataLoadedSignal:Wait()
-		end
-
-		resolve(self.playerProducer)
+	return waitForSignal(self.playerDataLoadedSignal, function(): ProfileTypes.PlayerProducer?
+		return self.isPlayerDataLoaded and self.playerProducer or nil
 	end)
 end
 
 function ClientData:GetClientProducerAsync(): Promise.TypedPromise<clientProfile.Producer>
-	return Promise.new(function(resolve: (clientProfile.Producer) -> ()): ()
-		if not self.clientProducer then
-			self.playerDataLoadedSignal:Wait()
-		end
-
-		resolve(self.clientProducer)
+	return waitForSignal(self.playerDataLoadedSignal, function(): clientProfile.Producer?
+		return self.clientProducer
 	end)
 end
 
 function ClientData:GetGameProducerAsync(): Promise.TypedPromise<gameProfile.Producer>
-	return Promise.new(function(resolve: (gameProfile.Producer) -> (), reject: (string) -> ()): ()
-		if not self.isGameDataLoaded then
-			self.gameDataLoadedSignal:Wait()
+	return waitForSignal(self.gameDataLoadedSignal, function(): gameProfile.Producer?
+		return self.isGameDataLoaded and self.gameProducer or nil
+	end):andThen(function(producer: gameProfile.Producer): gameProfile.Producer
+		if producer then
+			return producer
 		end
 
-		if not self.gameProducer then
-			reject(
-				`Game producer not initialized yet! Change calling controller index to higher number than {self.index}!`
-			)
-		end
-
-		resolve(self.gameProducer)
+		error(
+			`Game producer not initialized yet! Change calling controller index to higher number than {self.index}!`
+		)
 	end)
 end
 
