@@ -79,7 +79,7 @@ local PlayerReady = GetBridge("PlayerReady")
 
 local DATASTORE_KEY: string = GameConfig.data.datastoreKey
 local PLAYTIME_TICK_SECONDS: number = 10
-local SHUTDOWN_RELEASE_GRACE_SECONDS: number = 8
+local SHUTDOWN_RELEASE_GRACE_SECONDS: number = 25
 
 local ReplicateStore = Instance.new("RemoteEvent")
 ReplicateStore.Name = "ReplicateStore"
