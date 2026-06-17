@@ -177,7 +177,9 @@ function ClientData:Init(): ()
 	local function loadPlayerData(): ()
 		local playerData = ReplicatedStorage:WaitForChild("GetPlayerData"):InvokeServer()
 		if not playerData then
+			Logger.warn("ClientData: GetPlayerData returned nil; retrying")
 			task.wait(0.5)
+
 			return loadPlayerData()
 		end
 
@@ -228,7 +230,9 @@ function ClientData:Init(): ()
 	local function loadGameData(): (() -> ())?
 		local gameData = ReplicatedStorage:WaitForChild("GetGameData"):InvokeServer()
 		if not gameData then
+			Logger.warn("ClientData: GetGameData returned nil; retrying")
 			task.wait(0.2)
+
 			return loadGameData()
 		end
 
@@ -293,8 +297,14 @@ function ClientData:Init(): ()
 	end)
 
 	Promise.all({
-		Promise.defer(loadPlayerData),
-		Promise.defer(loadGameData),
+		Promise.defer(function(resolve: () -> ()): ()
+			loadPlayerData()
+			resolve()
+		end),
+		Promise.defer(function(resolve: () -> ()): ()
+			loadGameData()
+			resolve()
+		end),
 	}):expect()
 end
 
